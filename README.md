@@ -1,17 +1,18 @@
 # SoDEX Smart Portfolio — Wave 2 Research Desk
 
-This build upgrades the UI into a full SoSoValue-inspired research terminal while keeping your own branding.
+This build is a branded crypto research terminal with SoSoValue-style information density and your own ValuePilot branding.
 
-## Highlights
+## What changed in this fallback-safe version
 
-- Custom **ValuePilot** branding with the uploaded logo
-- Left navigation rail with real menu interactions
-- Search bar, top ticker strip, category tabs, watchlist mode, sorting controls
-- Main market table with stars, row selection, sparkline charts, and AI score chips
-- Right rail with spotlight tags, sector mover grid, ups/downs distribution, selected asset panel, and news list
-- Lower console with account state, signed order panel, and AI brief
-- Uses `/api/sosovalue` with fallback routes already hidden from the UI
-- Uses `/api/sodex/account` and `/api/sodex/order` for account/trading functions
+- `crypto/api/sosovalue.js` now uses a resilient data route:
+  1. SoSoValue API if key/path works
+  2. CoinGecko free public API if SoSoValue fails
+  3. Binance public ticker if CoinGecko fails
+  4. Local resilience dataset so the UI never becomes blank
+- Same fallback logic added to `crypto/netlify/functions/sosovalue.js`.
+- Raw API errors are not displayed in the interface.
+- Market, SSI, ETF and News tabs always receive rows.
+- `api/_utils.js` now imports `ethers` only when signing an order, so market data routes are lighter.
 
 ## Vercel settings
 
@@ -21,24 +22,32 @@ This build upgrades the UI into a full SoSoValue-inspired research terminal whil
 - Output Directory: `dist`
 - Install Command: `npm install --registry=https://registry.npmjs.org/`
 
-## Required environment variables
+## Environment variables
 
-### For market/research data
+### Optional but recommended for SoSoValue
 
-- `SOSOVALUE_API_KEY`
-- `SOSOVALUE_BASE_URL`
-- `SOSOVALUE_MARKET_PATH`
-- `SOSOVALUE_NEWS_PATH`
-- `SOSOVALUE_ETF_PATH`
-- `SOSOVALUE_SSI_PATH`
+```env
+SOSOVALUE_API_KEY=YOUR_SOSOVALUE_KEY
+SOSOVALUE_BASE_URL=https://openapi.sosovalue.com/openapi/v1
+SOSOVALUE_MARKET_PATH=/token/market/list
+SOSOVALUE_NEWS_PATH=/news/list
+SOSOVALUE_ETF_PATH=/etf/bitcoin/spot/flow
+SOSOVALUE_SSI_PATH=/ssi/index/list
+```
 
-### For account / signed trading
+If these are wrong or rate limited, the app automatically uses free fallback data.
 
-- `SODEX_USER_ADDRESS`
-- `SODEX_API_KEY_NAME`
-- `SODEX_API_PRIVATE_KEY`
-- `SODEX_NETWORK`
-- `SODEX_CHAIN_ID`
-- `SODEX_REST_BASE`
-- `SODEX_SPOT_REST_BASE`
-- Optional: `SODEX_ACCOUNT_ID`
+### Required only for SoDEX account/order actions
+
+```env
+SODEX_USER_ADDRESS=YOUR_WALLET_ADDRESS
+SODEX_NETWORK=mainnet
+SODEX_REST_BASE=https://mainnet-gw.sodex.dev/api/v1/perps
+SODEX_SPOT_REST_BASE=https://mainnet-gw.sodex.dev/api/v1/spot
+SODEX_API_KEY_NAME=YOUR_SODEX_API_KEY_NAME
+SODEX_API_PRIVATE_KEY=YOUR_SODEX_API_PRIVATE_KEY
+SODEX_CHAIN_ID=286623
+SODEX_ACCOUNT_ID=
+```
+
+`SODEX_ACCOUNT_ID` can stay blank if you do not have it. Signed trading will remain protected until required signing keys are configured.

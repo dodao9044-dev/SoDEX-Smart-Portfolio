@@ -1,5 +1,3 @@
-import { ethers } from 'ethers';
-
 export function json(res, status = 200) {
   return new Response(JSON.stringify(res), {
     status,
@@ -43,6 +41,7 @@ export function tradingEnv() {
 }
 
 export async function signSodexAction({ type, params, market }) {
+  const { ethers } = await import('ethers');
   const { apiKeyName, privateKey, missing } = tradingEnv();
   if (missing.length) {
     const error = new Error(`Missing ${missing.join(', ')}`);
