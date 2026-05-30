@@ -1,52 +1,44 @@
-# SoDEX Smart Portfolio — Wave 2 SoSoValue-inspired Build
+# SoDEX Smart Portfolio — Wave 2 Research Desk
 
-A clean Wave 2 on-chain finance tool rebuilt with a SoSoValue-style research dashboard UI.
+This build upgrades the UI into a full SoSoValue-inspired research terminal while keeping your own branding.
 
-## What changed
+## Highlights
 
-- SoSoValue-inspired dashboard layout: sticky top nav, market table, heatmap, ticker strip, watchlist rail, ETF/SSI/news tabs.
-- More professional crypto-research interface instead of a simple 3D landing page.
-- API failures are hidden from the user interface. The backend tries SoSoValue first, then protected free fallback data routes.
-- SoDEX trading keys remain server-side.
-- `SODEX_ACCOUNT_ID` can stay empty.
+- Custom **ValuePilot** branding with the uploaded logo
+- Left navigation rail with real menu interactions
+- Search bar, top ticker strip, category tabs, watchlist mode, sorting controls
+- Main market table with stars, row selection, sparkline charts, and AI score chips
+- Right rail with spotlight tags, sector mover grid, ups/downs distribution, selected asset panel, and news list
+- Lower console with account state, signed order panel, and AI brief
+- Uses `/api/sosovalue` with fallback routes already hidden from the UI
+- Uses `/api/sodex/account` and `/api/sodex/order` for account/trading functions
 
 ## Vercel settings
-
-Deploy from the `crypto` folder:
 
 - Root Directory: `crypto`
 - Framework Preset: `Vite`
 - Build Command: `npm run build`
 - Output Directory: `dist`
 - Install Command: `npm install --registry=https://registry.npmjs.org/`
-- Development Command: `vite`
 
 ## Required environment variables
 
-```env
-SOSOVALUE_API_KEY=YOUR_SOSOVALUE_API_KEY
-SOSOVALUE_BASE_URL=https://openapi.sosovalue.com/openapi/v1
-SOSOVALUE_MARKET_PATH=/token/market/list
-SOSOVALUE_NEWS_PATH=/news/list
-SOSOVALUE_ETF_PATH=/etf/bitcoin/spot/flow
-SOSOVALUE_SSI_PATH=/ssi/index/list
+### For market/research data
 
-SODEX_USER_ADDRESS=YOUR_WALLET_ADDRESS
-SODEX_NETWORK=mainnet
-SODEX_REST_BASE=https://mainnet-gw.sodex.dev/api/v1/perps
-SODEX_SPOT_REST_BASE=https://mainnet-gw.sodex.dev/api/v1/spot
-SODEX_API_KEY_NAME=mandala1321
-SODEX_API_PRIVATE_KEY=YOUR_SODEX_API_PRIVATE_KEY
-SODEX_CHAIN_ID=286623
-SODEX_ACCOUNT_ID=
-```
+- `SOSOVALUE_API_KEY`
+- `SOSOVALUE_BASE_URL`
+- `SOSOVALUE_MARKET_PATH`
+- `SOSOVALUE_NEWS_PATH`
+- `SOSOVALUE_ETF_PATH`
+- `SOSOVALUE_SSI_PATH`
 
-If a SoSoValue endpoint path changes, copy the path after `/openapi/v1` from the official API docs and replace the matching `SOSOVALUE_*_PATH` value.
+### For account / signed trading
 
-## Local run
-
-```bash
-cd crypto
-npm install --registry=https://registry.npmjs.org/
-npm run dev
-```
+- `SODEX_USER_ADDRESS`
+- `SODEX_API_KEY_NAME`
+- `SODEX_API_PRIVATE_KEY`
+- `SODEX_NETWORK`
+- `SODEX_CHAIN_ID`
+- `SODEX_REST_BASE`
+- `SODEX_SPOT_REST_BASE`
+- Optional: `SODEX_ACCOUNT_ID`

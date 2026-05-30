@@ -2,15 +2,34 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const tabs = [
-  { key: 'market', label: 'Coins', short: 'Live market' },
-  { key: 'ssi', label: 'SSI Index', short: 'Index basket' },
-  { key: 'etf', label: 'ETF', short: 'Flow board' },
-  { key: 'news', label: 'News', short: 'AI feed' }
+const primaryTabs = [
+  { key: 'market', label: 'Cryptocurrencies' },
+  { key: 'ssi', label: 'SSI Indexes' },
+  { key: 'etf', label: 'ETF Flows' },
+  { key: 'news', label: 'NewsFeed' }
 ];
 
-const fmtUsd = (value) => {
+const sideMenu = [
+  { key: 'market', label: 'Markets', icon: '◫' },
+  { key: 'ssi', label: 'Indexes', icon: '⌘' },
+  { key: 'news', label: 'NewsFeed', icon: '✦' },
+  { key: 'etf', label: 'TokenBar', icon: '◈' },
+  { key: 'analysis', label: 'Analysis', icon: '◌' },
+  { key: 'macro', label: 'Macro', icon: '◎' },
+  { key: 'watchlist', label: 'Watchlist', icon: '★' },
+  { key: 'execution', label: 'Execution', icon: '↗' }
+];
+
+const sectors = ['AI', 'BTC', 'StableCoin', 'ETH', 'Layer1', 'CeFi', 'PayFi', 'DeFi', 'Meme', 'Others', 'Layer2', 'SocialFi', 'DePIN', 'RWA', 'GameFi', 'NFT'];
+const tagPalette = ['emerald', 'rose', 'cyan', 'amber', 'violet'];
+
+const toNum = (value, fallback = 0) => {
   const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const fmtUsd = (value) => {
+  const n = toNum(value, NaN);
   if (!Number.isFinite(n)) return '—';
   if (Math.abs(n) >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
   if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -19,19 +38,18 @@ const fmtUsd = (value) => {
   return `$${n.toFixed(6)}`;
 };
 
-const fmtNum = (value) => {
-  const n = Number(value);
+const fmtPct = (value) => {
+  const n = toNum(value);
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+};
+
+const fmtCompact = (value) => {
+  const n = toNum(value, NaN);
   if (!Number.isFinite(n)) return '—';
   if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-};
-
-const fmtPct = (value) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '0.00%';
-  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
 };
 
 async function requestJson(url, options) {
@@ -61,259 +79,541 @@ function pick(row, keys, fallback = '') {
 }
 
 function makePath(points = [], height = 42, width = 112) {
-  const nums = points.map(Number).filter(Number.isFinite).slice(-24);
+  const nums = points.map(Number).filter(Number.isFinite).slice(-28);
   if (nums.length < 2) return '';
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const range = max - min || 1;
   return nums.map((v, i) => {
     const x = (i / (nums.length - 1)) * width;
-    const y = height - 5 - ((v - min) / range) * (height - 10);
+    const y = height - 4 - ((v - min) / range) * (height - 8);
     return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 }
 
-function Spark({ row }) {
-  const price = Number(pick(row, ['current_price', 'price', 'nav', 'lastPrice'], 1));
-  const change = Number(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
-  const fallback = Array.from({ length: 18 }, (_, i) => price * (1 + Math.sin(i / 2) * 0.008 + change / 1000 * i));
+function Sparkline({ row }) {
+  const price = toNum(pick(row, ['current_price', 'price', 'nav', 'lastPrice'], 1), 1);
+  const change = toNum(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
+  const fallback = Array.from({ length: 22 }, (_, i) => price * (1 + Math.sin(i / 2.8) * 0.012 + change / 1800 * i));
   const points = row?.sparkline_in_7d?.price || row?.sparkline || fallback;
   const d = makePath(points);
   return <svg className="sparkline" viewBox="0 0 112 42" aria-hidden="true"><path d={d} /></svg>;
 }
 
-function MiniBars({ rows }) {
-  const list = rows.slice(0, 9);
-  return (
-    <div className="miniBars">
-      {list.map((r, i) => {
-        const change = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], (i % 2 ? -1 : 1) * (i + 1)));
-        const h = Math.max(22, Math.min(100, 42 + Math.abs(change) * 8 + i * 3));
-        return <span key={i} className={change >= 0 ? 'upBg' : 'downBg'} style={{ height: `${h}%` }} />;
-      })}
-    </div>
-  );
+function normalizeName(row, fallback = 'Asset') {
+  return String(pick(row, ['name', 'title', 'tokenName', 'projectName', 'indexName'], fallback));
 }
 
-function Heatmap({ rows }) {
-  const list = rows.slice(0, 12);
-  if (!list.length) return <div className="emptySoft">Loading market heatmap...</div>;
-  return (
-    <div className="heatmap">
-      {list.map((r, i) => {
-        const symbol = String(pick(r, ['symbol', 'tokenSymbol', 'ticker'], `A${i}`)).toUpperCase();
-        const change = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
-        return <div key={`${symbol}-${i}`} className={change >= 0 ? 'heat upCell' : 'heat downCell'}><b>{symbol.slice(0, 5)}</b><span>{fmtPct(change)}</span></div>;
-      })}
-    </div>
-  );
+function normalizeSymbol(row, fallback = 'ASSET') {
+  return String(pick(row, ['symbol', 'tokenSymbol', 'ticker'], fallback)).toUpperCase();
 }
 
-function Header({ active, setActive }) {
-  return (
-    <header className="topbar">
-      <div className="brand">
-        <span className="brandMark">S</span>
-        <div><b>ValuePilot</b><small>Crypto investment research console</small></div>
-      </div>
-      <nav>
-        {tabs.map(t => <button key={t.key} className={active === t.key ? 'active' : ''} onClick={() => setActive(t.key)}>{t.label}</button>)}
-      </nav>
-      <div className="actions"><button>Watchlist</button><button className="primary">Connect</button></div>
-    </header>
-  );
+function normalizeChange(row) {
+  return toNum(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
 }
 
-function Hero({ stats, refresh, loading }) {
-  return (
-    <section className="hero officialCard">
-      <div className="heroText">
-        <div className="pillLine"><span /> WAVE 2 FINANCE TOOL</div>
-        <h1>AI-powered crypto research, index screening and execution.</h1>
-        <p>Track live markets, ETF flow proxies, news catalysts and SSI-style scores in a SoSoValue-inspired trading research dashboard.</p>
-        <div className="heroButtons"><button className="primary" onClick={refresh}>{loading ? 'Refreshing...' : 'Refresh data'}</button><a href="#table">Explore market</a></div>
-      </div>
-      <div className="heroPanel">
-        <div className="orbital"><i /><span /><b>{stats.assets}</b></div>
-        <div className="heroStats">
-          <div><small>Market cap</small><b>{fmtUsd(stats.marketCap)}</b></div>
-          <div><small>24h volume</small><b>{fmtUsd(stats.volume)}</b></div>
-          <div><small>Pulse</small><b className={stats.avg >= 0 ? 'up' : 'down'}>{fmtPct(stats.avg)}</b></div>
-        </div>
-      </div>
-    </section>
-  );
+function normalizePrice(row) {
+  return pick(row, ['current_price', 'price', 'value', 'nav', 'close', 'lastPrice', 'netFlow'], 0);
 }
 
-function SummaryStrip({ rows, source }) {
-  const btc = rows.find(r => String(pick(r, ['symbol'], '')).toLowerCase() === 'btc' || String(pick(r, ['id'], '')).toLowerCase() === 'bitcoin') || rows[0] || {};
-  const eth = rows.find(r => String(pick(r, ['symbol'], '')).toLowerCase() === 'eth' || String(pick(r, ['id'], '')).toLowerCase() === 'ethereum') || rows[1] || {};
-  const totalVol = rows.reduce((s, r) => s + Number(pick(r, ['total_volume', 'volume', 'quoteVolume', 'amount'], 0)), 0);
-  return (
-    <section className="tickerStrip officialCard">
-      <div><small>BTC Price</small><b>{fmtUsd(pick(btc, ['current_price', 'price', 'lastPrice']))}</b><span className={Number(pick(btc, ['price_change_percentage_24h', 'change24h'], 0)) >= 0 ? 'up' : 'down'}>{fmtPct(pick(btc, ['price_change_percentage_24h', 'change24h'], 0))}</span></div>
-      <div><small>ETH Price</small><b>{fmtUsd(pick(eth, ['current_price', 'price', 'lastPrice']))}</b><span className={Number(pick(eth, ['price_change_percentage_24h', 'change24h'], 0)) >= 0 ? 'up' : 'down'}>{fmtPct(pick(eth, ['price_change_percentage_24h', 'change24h'], 0))}</span></div>
-      <div><small>Tracked Volume</small><b>{fmtUsd(totalVol)}</b><span>24h</span></div>
-      <div><small>Data Route</small><b>{source.includes('sosovalue') ? 'Primary' : 'Protected'}</b><span>{source.replace('fallback-', '')}</span></div>
-    </section>
-  );
+function normalizeVolume(row) {
+  return pick(row, ['total_volume', 'volume', 'quoteVolume', 'amount', 'netFlow', 'market_cap'], 0);
 }
 
-function MarketTable({ rows, active }) {
-  if (!rows.length) return <div className="emptySoft big">Live data is warming up. Fallback routes will keep the interface quiet.</div>;
-  return (
-    <div className="tableShell officialCard" id="table">
-      <div className="tableHead"><h2>{active === 'news' ? 'Latest market intelligence' : active === 'etf' ? 'ETF flow dashboard' : active === 'ssi' ? 'SSI index opportunities' : 'Cryptocurrency prices by market cap'}</h2><span>{rows.length} rows</span></div>
-      <table>
-        <thead><tr><th>#</th><th>Name</th><th>Price / NAV</th><th>24h</th><th>Volume / Flow</th><th>7D Chart</th><th>Score</th></tr></thead>
-        <tbody>
-          {rows.slice(0, 12).map((row, i) => {
-            const symbol = String(pick(row, ['symbol', 'tokenSymbol', 'ticker'], active === 'news' ? 'NEWS' : 'IDX')).toUpperCase();
-            const name = String(pick(row, ['name', 'title', 'tokenName', 'projectName', 'indexName'], symbol));
-            const price = pick(row, ['current_price', 'price', 'value', 'nav', 'close', 'lastPrice', 'netFlow']);
-            const change = Number(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
-            const volume = pick(row, ['total_volume', 'volume', 'quoteVolume', 'amount', 'netFlow', 'market_cap']);
-            const score = Number(pick(row, ['score'], Math.max(55, Math.min(96, 70 + change * 2 + i))));
-            return (
-              <tr key={`${symbol}-${i}`}>
-                <td className="muted">{i + 1}</td>
-                <td><div className="coinName"><span>{symbol.slice(0, 3)}</span><div><b>{name.slice(0, 68)}</b><small>{symbol}</small></div></div></td>
-                <td><b>{active === 'news' ? 'Signal' : fmtUsd(price)}</b></td>
-                <td className={change >= 0 ? 'up' : 'down'}>{fmtPct(change)}</td>
-                <td>{fmtUsd(volume)}</td>
-                <td><Spark row={row} /></td>
-                <td><em className="score">{Math.round(score)}</em></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+function hashIndex(str = '') {
+  return [...String(str)].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 }
 
-function RightRail({ rows, active }) {
-  const leaders = rows.slice(0, 5);
-  return (
-    <aside className="rightRail">
-      <section className="officialCard railCard">
-        <div className="cardTitle"><h3>Market heatmap</h3><span>24h</span></div>
-        <Heatmap rows={rows} />
-      </section>
-      <section className="officialCard railCard">
-        <div className="cardTitle"><h3>AI Brief</h3><span>Live</span></div>
-        <p className="brief">{leaders.length ? `Leading symbols: ${leaders.map(r => String(pick(r, ['symbol', 'tokenSymbol', 'ticker', 'name'], 'ASSET')).toUpperCase()).join(', ')}. Dashboard routes through primary API first, then free market data if needed.` : 'Connect data to generate a market brief.'}</p>
-        <MiniBars rows={rows} />
-      </section>
-      <section className="officialCard railCard">
-        <div className="cardTitle"><h3>{active === 'news' ? 'Signal feed' : 'Watchlist movers'}</h3><span>Top</span></div>
-        <div className="watchRows">
-          {leaders.map((r, i) => {
-            const name = String(pick(r, ['symbol', 'tokenSymbol', 'ticker', 'name', 'title'], `Asset ${i + 1}`)).toUpperCase();
-            const ch = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change'], 0));
-            return <div key={i}><span>{name.slice(0, 16)}</span><b className={ch >= 0 ? 'up' : 'down'}>{fmtPct(ch)}</b></div>;
-          })}
-        </div>
-      </section>
-    </aside>
-  );
+function sectorFor(row, i = 0) {
+  const key = `${normalizeSymbol(row)}${normalizeName(row)}${i}`;
+  return sectors[hashIndex(key) % sectors.length];
 }
 
-function AccountBox({ account, loadAccount, loading }) {
-  return (
-    <section className="officialCard accountBox">
-      <div className="cardTitle"><h3>Account State</h3><button onClick={loadAccount}>{loading ? 'Loading...' : 'Load'}</button></div>
-      {account ? <pre>{JSON.stringify(account.data || account, null, 2)}</pre> : <div className="emptySoft">Set SODEX_USER_ADDRESS to query account state. Account ID is optional for primary account routing.</div>}
-    </section>
-  );
+function distribution(rows) {
+  const bins = [
+    { label: '<-8%', min: -100, max: -8 },
+    { label: '-8~-6', min: -8, max: -6 },
+    { label: '-6~-4', min: -6, max: -4 },
+    { label: '-4~-2', min: -4, max: -2 },
+    { label: '-2~0', min: -2, max: 0 },
+    { label: '0~2', min: 0, max: 2 },
+    { label: '2~4', min: 2, max: 4 },
+    { label: '4~6', min: 4, max: 6 },
+    { label: '6~8', min: 6, max: 8 },
+    { label: '>8%', min: 8, max: 100 }
+  ].map(b => ({ ...b, count: 0 }));
+
+  rows.forEach((row) => {
+    const value = normalizeChange(row);
+    const bin = bins.find((b, idx) => value >= b.min && (idx === bins.length - 1 ? value <= b.max : value < b.max));
+    if (bin) bin.count += 1;
+  });
+
+  const max = Math.max(...bins.map(b => b.count), 1);
+  return bins.map(b => ({ ...b, pct: (b.count / max) * 100 }));
 }
 
-function OrderBox({ order, setOrder, submitOrder, result, busy }) {
-  return (
-    <section className="officialCard orderBox">
-      <div className="cardTitle"><h3>Signed Order</h3><span>Server-side key</span></div>
-      <form onSubmit={submitOrder}>
-        <label>Market<select value={order.market} onChange={e => setOrder({ ...order, market: e.target.value })}><option value="perps">Perps</option><option value="spot">Spot</option></select></label>
-        <label>Symbol ID<input value={order.symbolID} onChange={e => setOrder({ ...order, symbolID: e.target.value })} /></label>
-        <label>Side<select value={order.side} onChange={e => setOrder({ ...order, side: e.target.value })}><option value="1">Buy</option><option value="2">Sell</option></select></label>
-        <label>Quantity<input value={order.quantity} onChange={e => setOrder({ ...order, quantity: e.target.value })} placeholder="0.001" /></label>
-        <label className="wide">Limit price optional<input value={order.price} onChange={e => setOrder({ ...order, price: e.target.value })} placeholder="leave blank for market" /></label>
-        <button className="primary wide" disabled={busy}>{busy ? 'Sending...' : 'Send signed order'}</button>
-      </form>
-      {result && <pre>{JSON.stringify(result, null, 2)}</pre>}
-    </section>
-  );
+function buildSpotlight(rows) {
+  const sorted = [...rows].sort((a, b) => normalizeChange(b) - normalizeChange(a));
+  const losers = [...rows].sort((a, b) => normalizeChange(a) - normalizeChange(b));
+  const gainers = sorted.slice(0, 4).map((r) => ({ text: `${sectorFor(r)} +${normalizeChange(r).toFixed(2)}%`, tone: 'emerald' }));
+  const drawdowns = losers.slice(0, 3).map((r) => ({ text: `${sectorFor(r)} ${normalizeChange(r).toFixed(2)}%`, tone: 'rose' }));
+  const staticTags = [
+    { text: 'ETF Candidates', tone: 'amber' },
+    { text: 'AI Agents', tone: 'violet' },
+    { text: 'Modular Chain', tone: 'emerald' },
+    { text: 'Stablecoin Rotation', tone: 'cyan' }
+  ];
+  return [...gainers, ...drawdowns, ...staticTags].slice(0, 10);
+}
+
+function marketStats(rows) {
+  const marketCap = rows.reduce((sum, row) => sum + toNum(pick(row, ['market_cap', 'marketCap', 'fdv'], 0)), 0);
+  const volume = rows.reduce((sum, row) => sum + toNum(normalizeVolume(row), 0), 0);
+  const avgChange = rows.length ? rows.reduce((sum, row) => sum + normalizeChange(row), 0) / rows.length : 0;
+  const btc = rows.find((r) => normalizeSymbol(r).toLowerCase() === 'btc' || String(pick(r, ['id'], '')).toLowerCase() === 'bitcoin') || rows[0] || {};
+  const eth = rows.find((r) => normalizeSymbol(r).toLowerCase() === 'eth' || String(pick(r, ['id'], '')).toLowerCase() === 'ethereum') || rows[1] || {};
+  return { marketCap, volume, avgChange, btc, eth };
+}
+
+function columnValue(row, key) {
+  if (key === 'price') return toNum(normalizePrice(row), 0);
+  if (key === 'change') return normalizeChange(row);
+  if (key === 'volume') return toNum(normalizeVolume(row), 0);
+  if (key === 'score') return toNum(pick(row, ['score'], 0), 0);
+  if (key === 'name') return normalizeName(row).toLowerCase();
+  if (key === 'marketCap') return toNum(pick(row, ['market_cap', 'marketCap', 'fdv'], normalizeVolume(row)), 0);
+  return normalizeName(row).toLowerCase();
 }
 
 function App() {
-  const [active, setActive] = useState('market');
-  const [payloads, setPayloads] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [account, setAccount] = useState(null);
+  const [datasets, setDatasets] = useState({ market: [], ssi: [], etf: [], news: [] });
+  const [sourceMap, setSourceMap] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('market');
+  const [sideActive, setSideActive] = useState('market');
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState('marketCap');
+  const [sortDir, setSortDir] = useState('desc');
+  const [watchlist, setWatchlist] = useState(() => new Set(['BTC', 'ETH', 'SOL']));
+  const [selectedRow, setSelectedRow] = useState(null);
   const [accountLoading, setAccountLoading] = useState(false);
-  const [orderBusy, setOrderBusy] = useState(false);
-  const [orderResult, setOrderResult] = useState(null);
-  const [order, setOrder] = useState({ market: 'perps', symbolID: '1', side: '1', quantity: '0.001', price: '' });
+  const [accountState, setAccountState] = useState(null);
+  const [tradeLoading, setTradeLoading] = useState(false);
+  const [tradeResult, setTradeResult] = useState(null);
+  const [tradeForm, setTradeForm] = useState({ market: 'perps', symbolID: '1', side: '1', quantity: '0.001', price: '' });
 
-  async function refresh() {
+  const fetchAll = async () => {
     setLoading(true);
-    const next = {};
-    await Promise.all(tabs.map(async (t) => {
-      try { next[t.key] = await requestJson(`/api/sosovalue?resource=${t.key}`); }
-      catch { next[t.key] = { ok: true, data: [] }; }
-    }));
-    setPayloads(next);
-    setLoading(false);
-  }
-
-  async function loadAccount() {
-    setAccountLoading(true);
-    try { setAccount(await requestJson('/api/sodex/account')); }
-    catch (e) { setAccount({ status: 'setup-needed', message: 'Set SODEX_USER_ADDRESS and SoDEX API env in Vercel for account telemetry.' }); }
-    setAccountLoading(false);
-  }
-
-  async function submitOrder(e) {
-    e.preventDefault();
-    setOrderBusy(true);
+    const resources = ['market', 'ssi', 'etf', 'news'];
     try {
-      setOrderResult(await requestJson('/api/sodex/order', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(order) }));
-    } catch (e) {
-      setOrderResult({ status: 'setup-needed', message: 'Trading action needs SODEX_API_KEY_NAME and SODEX_API_PRIVATE_KEY in Vercel. Account ID is optional.' });
+      const results = await Promise.all(resources.map((resource) => requestJson(`/api/sosovalue?resource=${resource}`)));
+      const next = {};
+      const sources = {};
+      resources.forEach((resource, index) => {
+        next[resource] = rowsFrom(results[index]);
+        sources[resource] = results[index]?.source || 'protected';
+      });
+      setDatasets(next);
+      setSourceMap(sources);
+      const first = next.market?.[0] || next.ssi?.[0] || next.etf?.[0] || next.news?.[0] || null;
+      setSelectedRow(first);
+    } catch {
+      setDatasets({ market: [], ssi: [], etf: [], news: [] });
+      setSourceMap({ market: 'protected', ssi: 'protected', etf: 'protected', news: 'protected' });
+    } finally {
+      setLoading(false);
     }
-    setOrderBusy(false);
-  }
+  };
 
-  useEffect(() => { refresh(); }, []);
-  const rows = rowsFrom(payloads[active]);
-  const marketRows = rowsFrom(payloads.market);
-  const stats = useMemo(() => {
-    const sourceRows = marketRows.length ? marketRows : rows;
-    const marketCap = sourceRows.reduce((s, r) => s + Number(pick(r, ['market_cap', 'marketCap'], 0)), 0);
-    const volume = sourceRows.reduce((s, r) => s + Number(pick(r, ['total_volume', 'volume', 'quoteVolume', 'amount'], 0)), 0);
-    const changes = sourceRows.map(r => Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'priceChangePercent'], 0))).filter(Number.isFinite);
-    const avg = changes.length ? changes.reduce((a, b) => a + b, 0) / changes.length : 0;
-    return { assets: sourceRows.length, marketCap, volume, avg };
-  }, [rows, marketRows]);
-  const source = payloads[active]?.source || 'protected';
+  useEffect(() => { fetchAll(); }, []);
+
+  useEffect(() => {
+    if (sideActive === 'watchlist' || sideActive === 'analysis' || sideActive === 'macro' || sideActive === 'execution') return;
+    if (['market', 'ssi', 'etf', 'news'].includes(sideActive)) setActiveTab(sideActive);
+  }, [sideActive]);
+
+  const marketRows = datasets.market || [];
+  const stats = useMemo(() => marketStats(marketRows), [marketRows]);
+  const spotlight = useMemo(() => buildSpotlight(marketRows), [marketRows]);
+  const heatmapRows = useMemo(() => marketRows.slice(0, 14).map((row, i) => ({ row, sector: sectorFor(row, i), change: normalizeChange(row) })), [marketRows]);
+  const currentRowsRaw = useMemo(() => {
+    if (sideActive === 'watchlist') return (datasets[activeTab] || []).filter((row) => watchlist.has(normalizeSymbol(row)));
+    return datasets[activeTab] || [];
+  }, [datasets, activeTab, sideActive, watchlist]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = currentRowsRaw;
+    if (q) {
+      rows = rows.filter((row) => `${normalizeName(row)} ${normalizeSymbol(row)} ${String(pick(row, ['title', 'indexName'], ''))}`.toLowerCase().includes(q));
+    }
+    const sorted = [...rows].sort((a, b) => {
+      const av = columnValue(a, sortKey);
+      const bv = columnValue(b, sortKey);
+      if (typeof av === 'string' || typeof bv === 'string') return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return sorted;
+  }, [currentRowsRaw, search, sortKey, sortDir]);
+
+  const currentSelected = useMemo(() => {
+    if (!selectedRow) return filteredRows[0] || null;
+    return selectedRow;
+  }, [selectedRow, filteredRows]);
+
+  const dist = useMemo(() => distribution(marketRows), [marketRows]);
+  const topMovers = useMemo(() => [...marketRows].sort((a, b) => normalizeChange(b) - normalizeChange(a)).slice(0, 6), [marketRows]);
+  const topLosers = useMemo(() => [...marketRows].sort((a, b) => normalizeChange(a) - normalizeChange(b)).slice(0, 6), [marketRows]);
+  const newsRows = datasets.news || [];
+
+  const toggleWatch = (symbol) => {
+    setWatchlist((prev) => {
+      const next = new Set(prev);
+      if (next.has(symbol)) next.delete(symbol);
+      else next.add(symbol);
+      return next;
+    });
+  };
+
+  const onSort = (key) => {
+    if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const loadAccount = async () => {
+    setAccountLoading(true);
+    setTradeResult(null);
+    try {
+      const data = await requestJson(`/api/sodex/account?market=${tradeForm.market}`);
+      setAccountState(data);
+    } catch {
+      setAccountState({ ok: false, error: 'Account state is protected until the wallet environment variables are complete.' });
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const submitOrder = async (event) => {
+    event.preventDefault();
+    setTradeLoading(true);
+    try {
+      const body = {
+        market: tradeForm.market,
+        symbolID: Number(tradeForm.symbolID),
+        side: Number(tradeForm.side),
+        quantity: tradeForm.quantity,
+        price: tradeForm.price || undefined
+      };
+      const data = await requestJson('/api/sodex/order', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      setTradeResult(data);
+    } catch {
+      setTradeResult({ ok: false, error: 'Signed execution is locked until backend signing keys are fully configured.' });
+    } finally {
+      setTradeLoading(false);
+    }
+  };
+
+  const footerTicker = marketRows.slice(0, 10);
+  const statsCards = [
+    { label: 'BTC Open Interest', value: fmtUsd(toNum(pick(stats.btc, ['market_cap', 'total_volume'], 0)) / 8 || 0), tone: 'neutral' },
+    { label: 'BTC 24H Volume', value: fmtUsd(pick(stats.btc, ['total_volume', 'quoteVolume'], 0)), tone: 'neutral' },
+    { label: 'ETH 24H Volume', value: fmtUsd(pick(stats.eth, ['total_volume', 'quoteVolume'], 0)), tone: 'neutral' },
+    { label: 'Data Route', value: sourceMap.market?.includes('sosovalue') ? 'Primary' : 'Protected', tone: 'neutral' }
+  ];
 
   return (
-    <main>
-      <Header active={active} setActive={setActive} />
-      <Hero stats={stats} refresh={refresh} loading={loading} />
-      <SummaryStrip rows={marketRows.length ? marketRows : rows} source={source} />
-      <section className="workspace">
-        <div className="leftColumn">
-          <div className="tabPanel officialCard">
-            <div className="tabButtons">{tabs.map(t => <button key={t.key} className={active === t.key ? 'active' : ''} onClick={() => setActive(t.key)}><b>{t.label}</b><small>{t.short}</small></button>)}</div>
+    <div className="appShell">
+      <aside className="sidebar">
+        <div className="logoWrap">
+          <img src="/brandmark.jpg" alt="ValuePilot mark" />
+          <div>
+            <b>ValuePilot</b>
+            <small>Research Desk</small>
           </div>
-          <MarketTable rows={rows} active={active} />
-          <section className="tradeGrid" id="trade"><AccountBox account={account} loadAccount={loadAccount} loading={accountLoading} /><OrderBox order={order} setOrder={setOrder} submitOrder={submitOrder} result={orderResult} busy={orderBusy} /></section>
         </div>
-        <RightRail rows={rows.length ? rows : marketRows} active={active} />
-      </section>
-      <footer>Wave 2 builder tool · server-side API keys · protected data fallback</footer>
-    </main>
+        <div className="sidebarMenu">
+          {sideMenu.map((item) => (
+            <button
+              key={item.key}
+              className={sideActive === item.key ? 'sideBtn active' : 'sideBtn'}
+              onClick={() => setSideActive(item.key)}
+            >
+              <span>{item.icon}</span>
+              <em>{item.label}</em>
+            </button>
+          ))}
+        </div>
+        <div className="sidebarFooter">
+          <button className="ghostChip" onClick={() => setSideActive('analysis')}>AI cockpit</button>
+          <button className="ghostChip" onClick={() => setSideActive('execution')}>Trade panel</button>
+        </div>
+      </aside>
+
+      <div className="contentShell">
+        <div className="tickerTop">
+          <div className="tickerMeta">Total MarketCap: <b>{fmtUsd(stats.marketCap)}</b> <span className={stats.avgChange >= 0 ? 'up' : 'down'}>{fmtPct(stats.avgChange)}</span></div>
+          <div className="tickerMeta">24H Vol: <b>{fmtUsd(stats.volume)}</b></div>
+          <div className="tickerMeta">BTC: <b>{fmtUsd(normalizePrice(stats.btc))}</b> <span className={normalizeChange(stats.btc) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(stats.btc))}</span></div>
+          <div className="tickerMeta">ETH: <b>{fmtUsd(normalizePrice(stats.eth))}</b> <span className={normalizeChange(stats.eth) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(stats.eth))}</span></div>
+          <div className="tickerMeta grow right">Wave 2 live desk • protected API routing • {sourceMap.market?.replace('fallback-', '') || 'booting'}</div>
+        </div>
+
+        <header className="headerBar">
+          <div className="searchBlock">
+            <div className="brandInline">
+              <img src="/brandmark.jpg" alt="ValuePilot mark" />
+              <div><b>ValuePilot</b><small>Autonomous on-chain finance workbench</small></div>
+            </div>
+            <div className="searchField">
+              <span>⌕</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SSI/AI/ETF/Coin/Index/Charts/Research" />
+            </div>
+          </div>
+          <div className="headerActions">
+            {primaryTabs.map((tab) => (
+              <button key={tab.key} className={activeTab === tab.key ? 'chip active' : 'chip'} onClick={() => { setActiveTab(tab.key); setSideActive(tab.key); }}>
+                {tab.label}
+              </button>
+            ))}
+            <button className="chip" onClick={() => setSideActive('watchlist')}>Watchlist</button>
+            <button className="chip primary" onClick={fetchAll}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          </div>
+        </header>
+
+        <div className="themeStrip">
+          {topMovers.slice(0, 4).map((row, i) => (
+            <button key={`g-${i}`} className="themeCard" onClick={() => { setActiveTab('market'); setSelectedRow(row); }}>
+              <div>
+                <b>{normalizeSymbol(row)} <small>{normalizeName(row)}</small></b>
+                <span className={normalizeChange(row) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(row))}</span>
+              </div>
+              <strong>{fmtUsd(normalizePrice(row))}</strong>
+            </button>
+          ))}
+          {statsCards.map((card, i) => (
+            <div key={`m-${i}`} className="themeStat"><small>{card.label}</small><b>{card.value}</b></div>
+          ))}
+        </div>
+
+        <div className="promoStrip">
+          <span className="badge">Research</span>
+          <p>Trade top assets on your own research desk. Run live market screening, ETF flow monitoring, signal sorting and signed execution from one interface.</p>
+          <button onClick={() => setSideActive('execution')}>Open execution</button>
+        </div>
+
+        <div className="workspace">
+          <section className="mainColumn">
+            <div className="sectionHead">
+              <div>
+                <h1>{sideActive === 'execution' ? 'Execution Workstation' : sideActive === 'analysis' ? 'Research & Analysis' : 'Cryptocurrency Research Terminal'}</h1>
+                <p>{sideActive === 'watchlist' ? 'Saved opportunities across your custom watchlist.' : 'Live prices, ranking, sector rotation, ETF proxies and news intelligence in one command center.'}</p>
+              </div>
+              <div className="miniStats">
+                <div><small>Primary route</small><b>{sourceMap[activeTab] || 'Protected'}</b></div>
+                <div><small>Rows</small><b>{filteredRows.length}</b></div>
+                <div><small>Tracked assets</small><b>{marketRows.length}</b></div>
+              </div>
+            </div>
+
+            <div className="tablePanel">
+              <div className="panelTabs">
+                {primaryTabs.map((tab) => (
+                  <button key={tab.key} className={activeTab === tab.key ? 'tabBtn active' : 'tabBtn'} onClick={() => { setActiveTab(tab.key); setSideActive(tab.key); }}>
+                    <b>{tab.label}</b>
+                    <small>{tab.key === 'market' ? 'All coin' : tab.key === 'ssi' ? 'Index basket' : tab.key === 'etf' ? 'Flow monitor' : 'Catalyst feed'}</small>
+                  </button>
+                ))}
+              </div>
+
+              <div className="tableToolbar">
+                <div className="toolbarLeft">
+                  <button className={sortKey === 'marketCap' ? 'tinyBtn active' : 'tinyBtn'} onClick={() => onSort('marketCap')}>Market Cap</button>
+                  <button className={sortKey === 'change' ? 'tinyBtn active' : 'tinyBtn'} onClick={() => onSort('change')}>Top Gainer</button>
+                  <button className={sortKey === 'volume' ? 'tinyBtn active' : 'tinyBtn'} onClick={() => onSort('volume')}>24H Volume</button>
+                  <button className={sortKey === 'score' ? 'tinyBtn active' : 'tinyBtn'} onClick={() => onSort('score')}>AI Score</button>
+                </div>
+                <div className="toolbarRight">
+                  <span>{sideActive === 'watchlist' ? 'Watchlist mode' : 'Live mode'}</span>
+                  <button className="tinyBtn" onClick={() => setSortDir((d) => d === 'asc' ? 'desc' : 'asc')}>{sortDir === 'asc' ? 'Asc' : 'Desc'}</button>
+                </div>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>★</th>
+                      <th>#</th>
+                      <th onClick={() => onSort('name')}>Coin</th>
+                      <th onClick={() => onSort('price')}>Price</th>
+                      <th onClick={() => onSort('change')}>24H Change</th>
+                      <th onClick={() => onSort('volume')}>24H Volume</th>
+                      <th onClick={() => onSort('marketCap')}>MarketCap</th>
+                      <th>7D Chart</th>
+                      <th onClick={() => onSort('score')}>AI Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.slice(0, 25).map((row, index) => {
+                      const symbol = normalizeSymbol(row, `A${index}`);
+                      const name = normalizeName(row, symbol);
+                      const change = normalizeChange(row);
+                      const watched = watchlist.has(symbol);
+                      return (
+                        <tr key={`${symbol}-${index}`} className={currentSelected === row ? 'selected' : ''} onClick={() => setSelectedRow(row)}>
+                          <td><button className={watched ? 'starBtn active' : 'starBtn'} onClick={(e) => { e.stopPropagation(); toggleWatch(symbol); }}>{watched ? '★' : '☆'}</button></td>
+                          <td>{index + 1}</td>
+                          <td>
+                            <div className="coinCell">
+                              <span className="coinAvatar">{symbol.slice(0, 1)}</span>
+                              <div>
+                                <b>{symbol} <small>{name}</small></b>
+                                <em>{sectorFor(row, index)}</em>
+                              </div>
+                            </div>
+                          </td>
+                          <td>{activeTab === 'news' ? 'Signal' : fmtUsd(normalizePrice(row))}</td>
+                          <td className={change >= 0 ? 'up' : 'down'}>{fmtPct(change)}</td>
+                          <td>{fmtUsd(normalizeVolume(row))}</td>
+                          <td>{fmtUsd(pick(row, ['market_cap', 'marketCap', 'fdv'], normalizeVolume(row)))}</td>
+                          <td><Sparkline row={row} /></td>
+                          <td><span className="scorePill">{Math.round(toNum(pick(row, ['score'], 72)))}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {!filteredRows.length && <div className="emptySoft">No rows match this view. Try another tab or search term.</div>}
+              </div>
+            </div>
+          </section>
+
+          <aside className="rightRail">
+            <section className="railPanel">
+              <div className="railHead"><h3>Spotlight</h3><span>{spotlight.length} tags</span></div>
+              <div className="tagGrid">
+                {spotlight.map((tag, i) => <button key={i} className={`tag ${tag.tone || tagPalette[i % tagPalette.length]}`}>{tag.text}</button>)}
+              </div>
+            </section>
+
+            <section className="railPanel">
+              <div className="railHead"><h3>Sector Mover</h3><span>24H Change</span></div>
+              <div className="sectorGrid">
+                {heatmapRows.map(({ row, sector, change }, i) => (
+                  <button key={i} className={change >= 0 ? 'sectorCard upBg' : 'sectorCard downBg'} onClick={() => setSelectedRow(row)}>
+                    <small>{sector}</small>
+                    <b>{normalizeSymbol(row)}</b>
+                    <span>{fmtPct(change)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="railPanel">
+              <div className="railHead"><h3>Distribution of ups/downs</h3><span>{marketRows.length} assets</span></div>
+              <div className="distribution">
+                {dist.map((item, i) => (
+                  <div key={i} className="barWrap">
+                    <div className={i < 5 ? 'distBar downBg' : 'distBar upBg'} style={{ height: `${Math.max(8, item.pct)}%` }} />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="railPanel tall">
+              <div className="railHead"><h3>Selected asset</h3><span>live</span></div>
+              {currentSelected ? (
+                <div className="selectionCard">
+                  <div className="selectionTop">
+                    <div className="symbolBadge">{normalizeSymbol(currentSelected).slice(0, 3)}</div>
+                    <div>
+                      <b>{normalizeName(currentSelected)}</b>
+                      <small>{normalizeSymbol(currentSelected)} • {sectorFor(currentSelected)}</small>
+                    </div>
+                  </div>
+                  <div className="selectionMetrics">
+                    <div><small>Price / NAV</small><b>{activeTab === 'news' ? 'Signal' : fmtUsd(normalizePrice(currentSelected))}</b></div>
+                    <div><small>24H Change</small><b className={normalizeChange(currentSelected) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(currentSelected))}</b></div>
+                    <div><small>24H Volume</small><b>{fmtUsd(normalizeVolume(currentSelected))}</b></div>
+                    <div><small>AI Score</small><b>{Math.round(toNum(pick(currentSelected, ['score'], 72)))}</b></div>
+                  </div>
+                  <Sparkline row={currentSelected} />
+                  <div className="selectionActions">
+                    <button onClick={() => toggleWatch(normalizeSymbol(currentSelected))}>{watchlist.has(normalizeSymbol(currentSelected)) ? 'Remove watchlist' : 'Add watchlist'}</button>
+                    <button className="primary" onClick={() => setSideActive('execution')}>Trade</button>
+                  </div>
+                </div>
+              ) : <div className="emptySoft">Select an asset row to inspect details.</div>}
+            </section>
+
+            <section className="railPanel newsPanel">
+              <div className="railHead"><h3>Latest News</h3><span>{newsRows.length} items</span></div>
+              <div className="newsList">
+                {newsRows.slice(0, 5).map((row, i) => (
+                  <button key={i} className="newsItem" onClick={() => { setActiveTab('news'); setSelectedRow(row); setSideActive('news'); }}>
+                    <b>{normalizeName(row, 'Crypto headline')}</b>
+                    <span>{pick(row, ['url', 'symbol'], 'Signal')}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <div className="lowerGrid">
+          <section className="consolePanel">
+            <div className="railHead"><h3>Account State</h3><button className="tinyBtn active" onClick={loadAccount}>{accountLoading ? 'Loading...' : 'Load'}</button></div>
+            {!accountState ? (
+              <div className="emptySoft">Set <b>SODEX_USER_ADDRESS</b> to query account state. <b>SODEX_ACCOUNT_ID</b> is optional for primary account queries.</div>
+            ) : (
+              <div className="jsonCard"><pre>{JSON.stringify(accountState?.data || accountState, null, 2)}</pre></div>
+            )}
+          </section>
+
+          <section className="consolePanel">
+            <div className="railHead"><h3>Signed Order</h3><span>server-side signing</span></div>
+            <form className="tradeForm" onSubmit={submitOrder}>
+              <label>Market<select value={tradeForm.market} onChange={(e) => setTradeForm({ ...tradeForm, market: e.target.value })}><option value="perps">Perps</option><option value="spot">Spot</option></select></label>
+              <label>Symbol ID<input value={tradeForm.symbolID} onChange={(e) => setTradeForm({ ...tradeForm, symbolID: e.target.value })} /></label>
+              <label>Side<select value={tradeForm.side} onChange={(e) => setTradeForm({ ...tradeForm, side: e.target.value })}><option value="1">Buy</option><option value="2">Sell</option></select></label>
+              <label>Quantity<input value={tradeForm.quantity} onChange={(e) => setTradeForm({ ...tradeForm, quantity: e.target.value })} /></label>
+              <label className="wide">Price (optional)<input value={tradeForm.price} onChange={(e) => setTradeForm({ ...tradeForm, price: e.target.value })} placeholder="leave blank for market" /></label>
+              <button className="submitBtn wide" type="submit">{tradeLoading ? 'Sending signed order...' : 'Send signed order'}</button>
+            </form>
+            {tradeResult && <div className="jsonCard small"><pre>{JSON.stringify(tradeResult, null, 2)}</pre></div>}
+          </section>
+
+          <section className="consolePanel">
+            <div className="railHead"><h3>AI Brief</h3><span>live</span></div>
+            <div className="briefCard">
+              <p><b>{topMovers[0] ? normalizeSymbol(topMovers[0]) : 'BTC'}</b> leads upside momentum while <b>{topLosers[0] ? normalizeSymbol(topLosers[0]) : 'ETH'}</b> drags the downside bucket.</p>
+              <ul>
+                <li>Screen assets by live market cap, 24H change and score.</li>
+                <li>Use the NewsFeed tab for catalyst monitoring and the ETF tab for flow proxies.</li>
+                <li>Switch to Watchlist mode to focus on starred assets.</li>
+                <li>Execution stays server-side and hides API keys from the frontend.</li>
+              </ul>
+            </div>
+          </section>
+        </div>
+
+        <div className="bottomTicker">
+          {footerTicker.map((row, i) => (
+            <div key={i} className="tickerItem">
+              <b>{normalizeSymbol(row)}</b>
+              <span>{fmtUsd(normalizePrice(row))}</span>
+              <em className={normalizeChange(row) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(row))}</em>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
