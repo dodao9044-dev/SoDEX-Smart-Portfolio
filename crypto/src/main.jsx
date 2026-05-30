@@ -2,47 +2,46 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const resources = [
-  { key: 'market', label: 'Market', hint: 'price, volume, momentum' },
-  { key: 'ssi', label: 'SSI Index', hint: 'score, trend, risk' },
-  { key: 'etf', label: 'ETF Flow', hint: 'flow proxy, liquidity' },
-  { key: 'news', label: 'Signals', hint: 'narratives, catalysts' }
+const tabs = [
+  { key: 'market', label: 'Coins', short: 'Live market' },
+  { key: 'ssi', label: 'SSI Index', short: 'Index basket' },
+  { key: 'etf', label: 'ETF', short: 'Flow board' },
+  { key: 'news', label: 'News', short: 'AI feed' }
 ];
 
-const formatUsd = (value) => {
+const fmtUsd = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
-  if (n >= 1) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  if (Math.abs(n) >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
+  if (Math.abs(n) >= 1) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   return `$${n.toFixed(6)}`;
 };
 
-const formatPct = (value) => {
+const fmtNum = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+
+const fmtPct = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0.00%';
   return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
 };
 
-async function apiGet(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  const data = await res.json().catch(() => ({}));
-  return data;
-}
-
-async function apiPost(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+async function requestJson(url, options) {
+  const res = await fetch(url, { cache: 'no-store', ...options });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
   return data;
 }
 
-function readRows(payload) {
+function rowsFrom(payload) {
   const data = payload?.data?.data ?? payload?.data ?? payload?.fallback?.data ?? payload;
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.list)) return data.list;
@@ -54,267 +53,266 @@ function readRows(payload) {
   return [];
 }
 
-function get(row, names, fallback = '') {
-  for (const name of names) {
-    if (row?.[name] !== undefined && row?.[name] !== null && row?.[name] !== '') return row[name];
+function pick(row, keys, fallback = '') {
+  for (const key of keys) {
+    if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') return row[key];
   }
   return fallback;
 }
 
-function Sparkline({ points = [] }) {
-  const nums = points.map(Number).filter(Number.isFinite).slice(-18);
-  if (nums.length < 2) return <span className="spark emptySpark" />;
+function makePath(points = [], height = 42, width = 112) {
+  const nums = points.map(Number).filter(Number.isFinite).slice(-24);
+  if (nums.length < 2) return '';
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const range = max - min || 1;
-  const d = nums.map((value, i) => {
-    const x = (i / (nums.length - 1)) * 96;
-    const y = 34 - ((value - min) / range) * 30;
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+  return nums.map((v, i) => {
+    const x = (i / (nums.length - 1)) * width;
+    const y = height - 5 - ((v - min) / range) * (height - 10);
+    return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
-  return <svg className="spark" viewBox="0 0 96 38" aria-hidden="true"><path d={d} /></svg>;
 }
 
-function SignalRing({ score = 71 }) {
-  const s = Math.max(0, Math.min(100, Number(score) || 0));
-  return (
-    <div className="ring" style={{ '--score': `${s * 3.6}deg` }}>
-      <div><b>{Math.round(s)}</b><span>AI score</span></div>
-    </div>
-  );
+function Spark({ row }) {
+  const price = Number(pick(row, ['current_price', 'price', 'nav', 'lastPrice'], 1));
+  const change = Number(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
+  const fallback = Array.from({ length: 18 }, (_, i) => price * (1 + Math.sin(i / 2) * 0.008 + change / 1000 * i));
+  const points = row?.sparkline_in_7d?.price || row?.sparkline || fallback;
+  const d = makePath(points);
+  return <svg className="sparkline" viewBox="0 0 112 42" aria-hidden="true"><path d={d} /></svg>;
 }
 
-function MarketCards({ rows }) {
-  const clean = rows.slice(0, 8);
-  if (!clean.length) {
-    return <div className="silentState">Connecting resilient data layer…</div>;
-  }
+function MiniBars({ rows }) {
+  const list = rows.slice(0, 9);
   return (
-    <div className="assetGrid">
-      {clean.map((row, index) => {
-        const symbol = String(get(row, ['symbol', 'tokenSymbol', 'ticker'], 'ASSET')).toUpperCase();
-        const name = String(get(row, ['name', 'title', 'tokenName', 'projectName', 'indexName'], symbol));
-        const price = get(row, ['current_price', 'price', 'value', 'nav', 'close', 'lastPrice']);
-        const change = get(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0);
-        const volume = get(row, ['total_volume', 'volume', 'quoteVolume', 'amount', 'netFlow']);
-        const positive = Number(change) >= 0;
-        return (
-          <article className="assetCard" key={`${symbol}-${index}`}>
-            <div className="assetTop">
-              <span className="coinBadge">{symbol.slice(0, 3)}</span>
-              <div><h3>{name.slice(0, 28)}</h3><p>{symbol}</p></div>
-            </div>
-            <div className="assetMain">
-              <strong>{formatUsd(price)}</strong>
-              <span className={positive ? 'green' : 'red'}>{formatPct(change)}</span>
-            </div>
-            <Sparkline points={row.sparkline_in_7d?.price || row.sparkline || []} />
-            <small>Volume {formatUsd(volume)}</small>
-          </article>
-        );
+    <div className="miniBars">
+      {list.map((r, i) => {
+        const change = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], (i % 2 ? -1 : 1) * (i + 1)));
+        const h = Math.max(22, Math.min(100, 42 + Math.abs(change) * 8 + i * 3));
+        return <span key={i} className={change >= 0 ? 'upBg' : 'downBg'} style={{ height: `${h}%` }} />;
       })}
     </div>
   );
 }
 
-function SignalList({ rows, active }) {
-  const list = rows.slice(0, 6);
-  if (!list.length) return <div className="silentState">Live signal engine warming up…</div>;
+function Heatmap({ rows }) {
+  const list = rows.slice(0, 12);
+  if (!list.length) return <div className="emptySoft">Loading market heatmap...</div>;
   return (
-    <div className="signalList">
-      {list.map((row, index) => {
-        const title = String(get(row, ['title', 'name', 'tokenName', 'projectName', 'indexName'], `Signal ${index + 1}`));
-        const change = get(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], index % 2 ? -1.7 : 3.2);
-        const score = Math.max(42, Math.min(98, 64 + Number(change || 0) * 3 + index * 2));
-        return (
-          <div className="signalRow" key={`${title}-${index}`}>
-            <span className="signalDot" />
-            <div>
-              <b>{title.slice(0, 72)}</b>
-              <p>{active === 'news' ? 'Narrative catalyst detected' : active === 'etf' ? 'Liquidity and flow proxy updated' : active === 'ssi' ? 'Index basket opportunity scored' : 'Market regime signal refreshed'}</p>
-            </div>
-            <em>{Math.round(score)}</em>
-          </div>
-        );
+    <div className="heatmap">
+      {list.map((r, i) => {
+        const symbol = String(pick(r, ['symbol', 'tokenSymbol', 'ticker'], `A${i}`)).toUpperCase();
+        const change = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
+        return <div key={`${symbol}-${i}`} className={change >= 0 ? 'heat upCell' : 'heat downCell'}><b>{symbol.slice(0, 5)}</b><span>{fmtPct(change)}</span></div>;
       })}
     </div>
   );
 }
 
-function PortfolioBrief({ rows, active }) {
-  const top = rows[0] || {};
-  const leaders = rows.slice(0, 3).map((r) => String(get(r, ['symbol', 'tokenSymbol', 'ticker', 'name'], 'asset')).toUpperCase()).join(' · ');
-  const changeValues = rows.map((r) => Number(get(r, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0))).filter(Number.isFinite);
-  const avg = changeValues.length ? changeValues.reduce((a, b) => a + b, 0) / changeValues.length : 0;
-  const score = Math.max(35, Math.min(96, 68 + avg * 2));
+function Header({ active, setActive }) {
   return (
-    <article className="briefCard depthCard">
-      <div className="briefHeader">
-        <div>
-          <span className="overline">AI Portfolio Brief</span>
-          <h2>{active === 'market' ? 'Momentum Command' : active === 'ssi' ? 'Index Builder Radar' : active === 'etf' ? 'Liquidity Flow Map' : 'Narrative Signal Desk'}</h2>
-        </div>
-        <SignalRing score={score} />
+    <header className="topbar">
+      <div className="brand">
+        <span className="brandMark">S</span>
+        <div><b>ValuePilot</b><small>Crypto investment research console</small></div>
       </div>
-      <p className="briefText">
-        {rows.length
-          ? `${rows.length} live records processed. Current leading basket: ${leaders || get(top, ['name'], 'multi-asset set')}. Average signal strength is ${formatPct(avg)} across the visible set.`
-          : 'Data layer is protected by fallback routing. The interface stays clean while backend sources reconnect.'}
-      </p>
-      <div className="briefChips">
-        <span>Risk-aware</span><span>Live API</span><span>On-chain ready</span>
-      </div>
-    </article>
+      <nav>
+        {tabs.map(t => <button key={t.key} className={active === t.key ? 'active' : ''} onClick={() => setActive(t.key)}>{t.label}</button>)}
+      </nav>
+      <div className="actions"><button>Watchlist</button><button className="primary">Connect</button></div>
+    </header>
   );
 }
 
-function HoloHero({ rows }) {
-  const count = rows.length || 12;
+function Hero({ stats, refresh, loading }) {
   return (
-    <section className="hero3d">
-      <div className="heroCopy">
-        <div className="eyebrow">Wave 2 builder console</div>
-        <h1>Autonomous<br />On-chain Finance<br />Command Center</h1>
-        <p>Premium live-data portfolio intelligence with market fallback routing, SSI-style scoring, ETF flow proxies and signed execution controls.</p>
-        <div className="heroActions"><a href="#deck">Launch deck</a><a className="ghost" href="#trade">Trading panel</a></div>
+    <section className="hero officialCard">
+      <div className="heroText">
+        <div className="pillLine"><span /> WAVE 2 FINANCE TOOL</div>
+        <h1>AI-powered crypto research, index screening and execution.</h1>
+        <p>Track live markets, ETF flow proxies, news catalysts and SSI-style scores in a SoSoValue-inspired trading research dashboard.</p>
+        <div className="heroButtons"><button className="primary" onClick={refresh}>{loading ? 'Refreshing...' : 'Refresh data'}</button><a href="#table">Explore market</a></div>
       </div>
-      <div className="holoStage" aria-hidden="true">
-        <div className="orbit orbitA" />
-        <div className="orbit orbitB" />
-        <div className="planet">
-          <span />
-          <i />
-          <b>{count}</b>
+      <div className="heroPanel">
+        <div className="orbital"><i /><span /><b>{stats.assets}</b></div>
+        <div className="heroStats">
+          <div><small>Market cap</small><b>{fmtUsd(stats.marketCap)}</b></div>
+          <div><small>24h volume</small><b>{fmtUsd(stats.volume)}</b></div>
+          <div><small>Pulse</small><b className={stats.avg >= 0 ? 'up' : 'down'}>{fmtPct(stats.avg)}</b></div>
         </div>
-        <div className="cube cubeA"><span /></div>
-        <div className="cube cubeB"><span /></div>
-        <div className="glassTicker"><strong>LIVE</strong><em>Resilient API blend</em></div>
       </div>
     </section>
   );
 }
 
-function AccountPanel({ account, loadAccount, loading }) {
-  const rows = readRows(account);
+function SummaryStrip({ rows, source }) {
+  const btc = rows.find(r => String(pick(r, ['symbol'], '')).toLowerCase() === 'btc' || String(pick(r, ['id'], '')).toLowerCase() === 'bitcoin') || rows[0] || {};
+  const eth = rows.find(r => String(pick(r, ['symbol'], '')).toLowerCase() === 'eth' || String(pick(r, ['id'], '')).toLowerCase() === 'ethereum') || rows[1] || {};
+  const totalVol = rows.reduce((s, r) => s + Number(pick(r, ['total_volume', 'volume', 'quoteVolume', 'amount'], 0)), 0);
   return (
-    <article className="panel depthCard" id="account">
-      <div className="sectionHead"><div><span className="overline">SoDEX state</span><h2>Account telemetry</h2></div><button onClick={loadAccount}>{loading ? 'Loading' : 'Load state'}</button></div>
-      {account?.ok ? <pre>{JSON.stringify(account.data || account, null, 2)}</pre> : <div className="silentState">Add SODEX_USER_ADDRESS for account telemetry. Account ID can stay empty for primary account routing.</div>}
-    </article>
+    <section className="tickerStrip officialCard">
+      <div><small>BTC Price</small><b>{fmtUsd(pick(btc, ['current_price', 'price', 'lastPrice']))}</b><span className={Number(pick(btc, ['price_change_percentage_24h', 'change24h'], 0)) >= 0 ? 'up' : 'down'}>{fmtPct(pick(btc, ['price_change_percentage_24h', 'change24h'], 0))}</span></div>
+      <div><small>ETH Price</small><b>{fmtUsd(pick(eth, ['current_price', 'price', 'lastPrice']))}</b><span className={Number(pick(eth, ['price_change_percentage_24h', 'change24h'], 0)) >= 0 ? 'up' : 'down'}>{fmtPct(pick(eth, ['price_change_percentage_24h', 'change24h'], 0))}</span></div>
+      <div><small>Tracked Volume</small><b>{fmtUsd(totalVol)}</b><span>24h</span></div>
+      <div><small>Data Route</small><b>{source.includes('sosovalue') ? 'Primary' : 'Protected'}</b><span>{source.replace('fallback-', '')}</span></div>
+    </section>
   );
 }
 
-function TradingPanel({ submitOrder, order, setOrder, result, busy }) {
+function MarketTable({ rows, active }) {
+  if (!rows.length) return <div className="emptySoft big">Live data is warming up. Fallback routes will keep the interface quiet.</div>;
   return (
-    <article className="panel tradePanel depthCard" id="trade">
-      <div className="sectionHead"><div><span className="overline">Signed execution</span><h2>Trading cockpit</h2></div><span className="safeBadge">server-side keys</span></div>
-      <form onSubmit={submitOrder}>
-        <div className="formGrid">
-          <label>Market<select value={order.market} onChange={(e) => setOrder({ ...order, market: e.target.value })}><option value="perps">Perps</option><option value="spot">Spot</option></select></label>
-          <label>Symbol ID<input value={order.symbolID} onChange={(e) => setOrder({ ...order, symbolID: e.target.value })} /></label>
-          <label>Side<select value={order.side} onChange={(e) => setOrder({ ...order, side: e.target.value })}><option value="1">Buy</option><option value="2">Sell</option></select></label>
-          <label>Quantity<input value={order.quantity} onChange={(e) => setOrder({ ...order, quantity: e.target.value })} placeholder="0.001" /></label>
+    <div className="tableShell officialCard" id="table">
+      <div className="tableHead"><h2>{active === 'news' ? 'Latest market intelligence' : active === 'etf' ? 'ETF flow dashboard' : active === 'ssi' ? 'SSI index opportunities' : 'Cryptocurrency prices by market cap'}</h2><span>{rows.length} rows</span></div>
+      <table>
+        <thead><tr><th>#</th><th>Name</th><th>Price / NAV</th><th>24h</th><th>Volume / Flow</th><th>7D Chart</th><th>Score</th></tr></thead>
+        <tbody>
+          {rows.slice(0, 12).map((row, i) => {
+            const symbol = String(pick(row, ['symbol', 'tokenSymbol', 'ticker'], active === 'news' ? 'NEWS' : 'IDX')).toUpperCase();
+            const name = String(pick(row, ['name', 'title', 'tokenName', 'projectName', 'indexName'], symbol));
+            const price = pick(row, ['current_price', 'price', 'value', 'nav', 'close', 'lastPrice', 'netFlow']);
+            const change = Number(pick(row, ['price_change_percentage_24h', 'change24h', 'change', 'pctChange', 'priceChangePercent'], 0));
+            const volume = pick(row, ['total_volume', 'volume', 'quoteVolume', 'amount', 'netFlow', 'market_cap']);
+            const score = Number(pick(row, ['score'], Math.max(55, Math.min(96, 70 + change * 2 + i))));
+            return (
+              <tr key={`${symbol}-${i}`}>
+                <td className="muted">{i + 1}</td>
+                <td><div className="coinName"><span>{symbol.slice(0, 3)}</span><div><b>{name.slice(0, 68)}</b><small>{symbol}</small></div></div></td>
+                <td><b>{active === 'news' ? 'Signal' : fmtUsd(price)}</b></td>
+                <td className={change >= 0 ? 'up' : 'down'}>{fmtPct(change)}</td>
+                <td>{fmtUsd(volume)}</td>
+                <td><Spark row={row} /></td>
+                <td><em className="score">{Math.round(score)}</em></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RightRail({ rows, active }) {
+  const leaders = rows.slice(0, 5);
+  return (
+    <aside className="rightRail">
+      <section className="officialCard railCard">
+        <div className="cardTitle"><h3>Market heatmap</h3><span>24h</span></div>
+        <Heatmap rows={rows} />
+      </section>
+      <section className="officialCard railCard">
+        <div className="cardTitle"><h3>AI Brief</h3><span>Live</span></div>
+        <p className="brief">{leaders.length ? `Leading symbols: ${leaders.map(r => String(pick(r, ['symbol', 'tokenSymbol', 'ticker', 'name'], 'ASSET')).toUpperCase()).join(', ')}. Dashboard routes through primary API first, then free market data if needed.` : 'Connect data to generate a market brief.'}</p>
+        <MiniBars rows={rows} />
+      </section>
+      <section className="officialCard railCard">
+        <div className="cardTitle"><h3>{active === 'news' ? 'Signal feed' : 'Watchlist movers'}</h3><span>Top</span></div>
+        <div className="watchRows">
+          {leaders.map((r, i) => {
+            const name = String(pick(r, ['symbol', 'tokenSymbol', 'ticker', 'name', 'title'], `Asset ${i + 1}`)).toUpperCase();
+            const ch = Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change'], 0));
+            return <div key={i}><span>{name.slice(0, 16)}</span><b className={ch >= 0 ? 'up' : 'down'}>{fmtPct(ch)}</b></div>;
+          })}
         </div>
-        <label>Limit price optional<input value={order.price} onChange={(e) => setOrder({ ...order, price: e.target.value })} placeholder="leave empty for market" /></label>
-        <button className="primaryButton" type="submit" disabled={busy}>{busy ? 'Signing…' : 'Send signed order'}</button>
+      </section>
+    </aside>
+  );
+}
+
+function AccountBox({ account, loadAccount, loading }) {
+  return (
+    <section className="officialCard accountBox">
+      <div className="cardTitle"><h3>Account State</h3><button onClick={loadAccount}>{loading ? 'Loading...' : 'Load'}</button></div>
+      {account ? <pre>{JSON.stringify(account.data || account, null, 2)}</pre> : <div className="emptySoft">Set SODEX_USER_ADDRESS to query account state. Account ID is optional for primary account routing.</div>}
+    </section>
+  );
+}
+
+function OrderBox({ order, setOrder, submitOrder, result, busy }) {
+  return (
+    <section className="officialCard orderBox">
+      <div className="cardTitle"><h3>Signed Order</h3><span>Server-side key</span></div>
+      <form onSubmit={submitOrder}>
+        <label>Market<select value={order.market} onChange={e => setOrder({ ...order, market: e.target.value })}><option value="perps">Perps</option><option value="spot">Spot</option></select></label>
+        <label>Symbol ID<input value={order.symbolID} onChange={e => setOrder({ ...order, symbolID: e.target.value })} /></label>
+        <label>Side<select value={order.side} onChange={e => setOrder({ ...order, side: e.target.value })}><option value="1">Buy</option><option value="2">Sell</option></select></label>
+        <label>Quantity<input value={order.quantity} onChange={e => setOrder({ ...order, quantity: e.target.value })} placeholder="0.001" /></label>
+        <label className="wide">Limit price optional<input value={order.price} onChange={e => setOrder({ ...order, price: e.target.value })} placeholder="leave blank for market" /></label>
+        <button className="primary wide" disabled={busy}>{busy ? 'Sending...' : 'Send signed order'}</button>
       </form>
-      {result ? <pre>{JSON.stringify(result, null, 2)}</pre> : <div className="silentState">The app will not expose API failures to visitors; trading setup messages stay contained here.</div>}
-    </article>
+      {result && <pre>{JSON.stringify(result, null, 2)}</pre>}
+    </section>
   );
 }
 
 function App() {
   const [active, setActive] = useState('market');
-  const [dataMap, setDataMap] = useState({});
+  const [payloads, setPayloads] = useState({});
   const [loading, setLoading] = useState(false);
   const [account, setAccount] = useState(null);
   const [accountLoading, setAccountLoading] = useState(false);
-  const [orderResult, setOrderResult] = useState(null);
   const [orderBusy, setOrderBusy] = useState(false);
-  const [order, setOrder] = useState({ market: 'perps', symbolID: '1', side: '1', quantity: '', price: '' });
+  const [orderResult, setOrderResult] = useState(null);
+  const [order, setOrder] = useState({ market: 'perps', symbolID: '1', side: '1', quantity: '0.001', price: '' });
 
-  const activeData = dataMap[active];
-  const rows = readRows(activeData);
-
-  async function loadResource(key = active) {
+  async function refresh() {
     setLoading(true);
-    const data = await apiGet(`/api/sosovalue?resource=${key}`);
-    setDataMap((prev) => ({ ...prev, [key]: data }));
-    setLoading(false);
-  }
-
-  async function loadAll() {
-    setLoading(true);
-    const entries = await Promise.all(resources.map(async (item) => [item.key, await apiGet(`/api/sosovalue?resource=${item.key}`)]));
-    setDataMap(Object.fromEntries(entries));
+    const next = {};
+    await Promise.all(tabs.map(async (t) => {
+      try { next[t.key] = await requestJson(`/api/sosovalue?resource=${t.key}`); }
+      catch { next[t.key] = { ok: true, data: [] }; }
+    }));
+    setPayloads(next);
     setLoading(false);
   }
 
   async function loadAccount() {
     setAccountLoading(true);
-    const data = await apiGet('/api/sodex/account?market=spot');
-    setAccount(data);
+    try { setAccount(await requestJson('/api/sodex/account')); }
+    catch (e) { setAccount({ status: 'setup-needed', message: 'Set SODEX_USER_ADDRESS and SoDEX API env in Vercel for account telemetry.' }); }
     setAccountLoading(false);
   }
 
-  async function submitOrder(event) {
-    event.preventDefault();
+  async function submitOrder(e) {
+    e.preventDefault();
     setOrderBusy(true);
     try {
-      const data = await apiPost('/api/sodex/order', order);
-      setOrderResult(data);
+      setOrderResult(await requestJson('/api/sodex/order', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(order) }));
     } catch (e) {
-      setOrderResult({ ok: false, message: 'Trading route is protected. Complete backend execution variables before sending live orders.' });
-    } finally {
-      setOrderBusy(false);
+      setOrderResult({ status: 'setup-needed', message: 'Trading action needs SODEX_API_KEY_NAME and SODEX_API_PRIVATE_KEY in Vercel. Account ID is optional.' });
     }
+    setOrderBusy(false);
   }
 
-  useEffect(() => { loadAll(); }, []);
-  useEffect(() => { if (!dataMap[active]) loadResource(active); }, [active]);
-
-  const marketRows = readRows(dataMap.market);
-  const sourceLabel = activeData?.source === 'sosovalue' ? 'Primary API' : 'Resilient blend';
-  const totalVolume = marketRows.reduce((sum, r) => sum + (Number(get(r, ['total_volume', 'volume', 'quoteVolume'], 0)) || 0), 0);
-  const avgMove = marketRows.length ? marketRows.reduce((sum, r) => sum + (Number(get(r, ['price_change_percentage_24h', 'change24h', 'priceChangePercent'], 0)) || 0), 0) / marketRows.length : 0;
+  useEffect(() => { refresh(); }, []);
+  const rows = rowsFrom(payloads[active]);
+  const marketRows = rowsFrom(payloads.market);
+  const stats = useMemo(() => {
+    const sourceRows = marketRows.length ? marketRows : rows;
+    const marketCap = sourceRows.reduce((s, r) => s + Number(pick(r, ['market_cap', 'marketCap'], 0)), 0);
+    const volume = sourceRows.reduce((s, r) => s + Number(pick(r, ['total_volume', 'volume', 'quoteVolume', 'amount'], 0)), 0);
+    const changes = sourceRows.map(r => Number(pick(r, ['price_change_percentage_24h', 'change24h', 'change', 'priceChangePercent'], 0))).filter(Number.isFinite);
+    const avg = changes.length ? changes.reduce((a, b) => a + b, 0) / changes.length : 0;
+    return { assets: sourceRows.length, marketCap, volume, avg };
+  }, [rows, marketRows]);
+  const source = payloads[active]?.source || 'protected';
 
   return (
     <main>
-      <div className="ambient"><span /><span /><span /></div>
-      <header className="navBar">
-        <div className="brandMark"><b>VP</b><div><strong>ValuePilot</strong><small>Live Data × Trading × ValueChain</small></div></div>
-        <nav>{resources.map((item) => <button key={item.key} className={active === item.key ? 'activeNav' : ''} onClick={() => setActive(item.key)}>{item.label}</button>)}</nav>
-      </header>
-
-      <HoloHero rows={rows} />
-
-      <section className="metricsRow">
-        <div><span>Data route</span><b>{sourceLabel}</b></div>
-        <div><span>Tracked volume</span><b>{formatUsd(totalVolume)}</b></div>
-        <div><span>Market pulse</span><b className={avgMove >= 0 ? 'green' : 'red'}>{formatPct(avgMove)}</b></div>
-        <div><span>Execution mode</span><b>Protected</b></div>
-      </section>
-
-      <section className="deck" id="deck">
-        <div className="sectionHead floatingHead">
-          <div><span className="overline">Live intelligence deck</span><h2>3D Portfolio Control Room</h2></div>
-          <button onClick={() => loadResource(active)}>{loading ? 'Syncing…' : 'Refresh live data'}</button>
+      <Header active={active} setActive={setActive} />
+      <Hero stats={stats} refresh={refresh} loading={loading} />
+      <SummaryStrip rows={marketRows.length ? marketRows : rows} source={source} />
+      <section className="workspace">
+        <div className="leftColumn">
+          <div className="tabPanel officialCard">
+            <div className="tabButtons">{tabs.map(t => <button key={t.key} className={active === t.key ? 'active' : ''} onClick={() => setActive(t.key)}><b>{t.label}</b><small>{t.short}</small></button>)}</div>
+          </div>
+          <MarketTable rows={rows} active={active} />
+          <section className="tradeGrid" id="trade"><AccountBox account={account} loadAccount={loadAccount} loading={accountLoading} /><OrderBox order={order} setOrder={setOrder} submitOrder={submitOrder} result={orderResult} busy={orderBusy} /></section>
         </div>
-        <div className="tabs3d">
-          {resources.map((item) => <button className={active === item.key ? 'active' : ''} onClick={() => setActive(item.key)} key={item.key}><b>{item.label}</b><span>{item.hint}</span></button>)}
-        </div>
-        <div className="dashboardGrid">
-          <article className="depthCard marketPanel"><MarketCards rows={rows} /></article>
-          <PortfolioBrief rows={rows} active={active} />
-          <article className="depthCard signalsPanel"><div className="sectionHead"><div><span className="overline">Signal Matrix</span><h2>Actionable radar</h2></div><span className="liveDot">Live</span></div><SignalList rows={rows} active={active} /></article>
-          <article className="depthCard chainPanel"><span className="overline">ValueChain readiness</span><h2>On-chain business layer</h2><div className="chainMap"><span>Data</span><i /> <span>Signal</span><i /> <span>Trade</span><i /> <span>Portfolio</span></div><p>Built for a one-person finance business: source data, score opportunities, validate risk and execute through protected backend endpoints.</p></article>
-        </div>
+        <RightRail rows={rows.length ? rows : marketRows} active={active} />
       </section>
-
-      <section className="opsGrid">
-        <AccountPanel account={account} loadAccount={loadAccount} loading={accountLoading} />
-        <TradingPanel submitOrder={submitOrder} order={order} setOrder={setOrder} result={orderResult} busy={orderBusy} />
-      </section>
+      <footer>Wave 2 builder tool · server-side API keys · protected data fallback</footer>
     </main>
   );
 }
