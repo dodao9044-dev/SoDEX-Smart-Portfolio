@@ -13,7 +13,6 @@ function requireTradingEnv() {
   const missing = [];
   if (!apiKeyName) missing.push('SODEX_API_KEY_NAME');
   if (!privateKey) missing.push('SODEX_API_PRIVATE_KEY');
-  if (!accountID) missing.push('SODEX_ACCOUNT_ID');
   return { apiKeyName, privateKey, accountID, missing };
 }
 function cleanOrder(input) {
@@ -44,13 +43,14 @@ export async function handler(event) {
   try {
     if (event.httpMethod !== 'POST') return json(405, { ok: false, error: 'Method not allowed' });
     const { apiKeyName, privateKey, accountID, missing } = requireTradingEnv();
-    if (missing.length) return json(400, { ok: false, error: `Trading setup incomplete: ${missing.join(', ')}`, required: ['SODEX_API_KEY_NAME', 'SODEX_API_PRIVATE_KEY', 'SODEX_ACCOUNT_ID'], note: 'SoDEX trading actions require accountID for signature verification.' });
+    if (missing.length) return json(400, { ok: false, error: 'Trading route is protected until backend signing keys are complete.', missing, required: ['SODEX_API_KEY_NAME', 'SODEX_API_PRIVATE_KEY'], optional: ['SODEX_ACCOUNT_ID'] });
     const body = event.body ? JSON.parse(event.body) : {};
     const market = body.market === 'spot' ? 'spot' : 'perps';
     const symbolID = Number(body.symbolID || 1);
     const quantity = String(body.quantity || '').trim();
     if (!symbolID || !quantity) return json(400, { ok: false, error: 'symbolID and quantity are required' });
-    const params = { accountID: Number(accountID), symbolID, orders: [cleanOrder(body)] };
+    const params = { symbolID, orders: [cleanOrder(body)] };
+    if (accountID) params.accountID = Number(accountID);
     const headers = await signAction({ type: 'newOrder', params, market, apiKeyName, privateKey });
     const path = market === 'spot' ? '/trade/orders/batch' : '/trade/orders';
     const upstream = await fetch(`${endpointBase(market)}${path}`, { method: 'POST', headers, body: JSON.stringify(params) });

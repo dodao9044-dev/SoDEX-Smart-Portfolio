@@ -1,4 +1,4 @@
-import { json, readJson, endpointBase, requireTradingEnv, signSodexAction } from '../_utils.js';
+import { json, readJson, endpointBase, tradingEnv, signSodexAction } from '../_utils.js';
 
 function cleanOrder(input) {
   const order = {
@@ -27,13 +27,14 @@ export default async function handler(req) {
       return json({ ok: false, error: 'Method not allowed' }, 405);
     }
 
-    const { missing, accountID } = requireTradingEnv();
+    const { missing, accountID } = tradingEnv();
     if (missing.length) {
       return json({
         ok: false,
-        error: `Trading setup incomplete: ${missing.join(', ')}`,
-        required: ['SODEX_API_KEY_NAME', 'SODEX_API_PRIVATE_KEY', 'SODEX_ACCOUNT_ID'],
-        note: 'SoDEX trading actions require accountID for signature verification.'
+        error: 'Trading route is protected until backend signing keys are complete.',
+        missing,
+        required: ['SODEX_API_KEY_NAME', 'SODEX_API_PRIVATE_KEY'],
+        optional: ['SODEX_ACCOUNT_ID']
       }, 400);
     }
 
@@ -47,10 +48,10 @@ export default async function handler(req) {
     }
 
     const params = {
-      accountID: Number(accountID),
       symbolID,
       orders: [cleanOrder(body)]
     };
+    if (accountID) params.accountID = Number(accountID);
 
     const signed = await signSodexAction({ type: 'newOrder', params, market });
     const path = market === 'spot' ? '/trade/orders/batch' : '/trade/orders';
