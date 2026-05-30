@@ -413,7 +413,7 @@ function App() {
     { label: 'BTC Open Interest', value: fmtUsd(toNum(pick(stats.btc, ['market_cap', 'total_volume'], 0)) / 8 || 0), tone: 'neutral' },
     { label: 'BTC 24H Volume', value: fmtUsd(pick(stats.btc, ['total_volume', 'quoteVolume'], 0)), tone: 'neutral' },
     { label: 'ETH 24H Volume', value: fmtUsd(pick(stats.eth, ['total_volume', 'quoteVolume'], 0)), tone: 'neutral' },
-    { label: 'Data Route', value: sourceMap.market?.includes('sosovalue') ? 'Primary' : 'Protected', tone: 'neutral' }
+    { label: 'Execution Mode', value: 'Protected', tone: 'neutral' }
   ];
 
   return (
@@ -450,7 +450,7 @@ function App() {
           <div className="tickerMeta">24H Vol: <b>{fmtUsd(stats.volume)}</b></div>
           <div className="tickerMeta">BTC: <b>{fmtUsd(normalizePrice(stats.btc))}</b> <span className={normalizeChange(stats.btc) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(stats.btc))}</span></div>
           <div className="tickerMeta">ETH: <b>{fmtUsd(normalizePrice(stats.eth))}</b> <span className={normalizeChange(stats.eth) >= 0 ? 'up' : 'down'}>{fmtPct(normalizeChange(stats.eth))}</span></div>
-          <div className="tickerMeta grow right">Wave 2 live desk • protected API routing • {sourceMap.market?.replace('fallback-', '') || 'booting'}</div>
+          <div className="tickerMeta grow right">Wave 2 live desk • live market intelligence • secure execution layer</div>
         </div>
 
         <header className="headerBar">
@@ -504,7 +504,7 @@ function App() {
                 <p>{sideActive === 'watchlist' ? 'Saved opportunities across your custom watchlist.' : 'Live prices, ranking, sector rotation, ETF proxies and news intelligence in one command center.'}</p>
               </div>
               <div className="miniStats">
-                <div><small>Primary route</small><b>{sourceMap[activeTab] || 'Protected'}</b></div>
+                <div><small>Market mode</small><b>Live</b></div>
                 <div><small>Rows</small><b>{filteredRows.length}</b></div>
                 <div><small>Tracked assets</small><b>{marketRows.length}</b></div>
               </div>
