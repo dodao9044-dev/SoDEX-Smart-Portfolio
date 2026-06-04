@@ -26,6 +26,38 @@ const NAME_MAP = {
   NEAR: 'NEAR Protocol', UNI: 'Uniswap', APT: 'Aptos', ICP: 'Internet Computer', ETC: 'Ethereum Classic', RENDER: 'Render', OP: 'Optimism', ARB: 'Arbitrum'
 };
 
+
+const CRYPTOCOMPARE_SYMBOLS = ['BTC','ETH','USDT','BNB','SOL','XRP','USDC','DOGE','ADA','TRX','LINK','AVAX','SUI','XLM','LTC','BCH','DOT','NEAR','UNI','APT','ICP','ETC','ONDO','RENDER','ARB','OP'];
+
+async function cryptoCompareMarkets() {
+  const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${CRYPTOCOMPARE_SYMBOLS.join(',')}&tsyms=USD`;
+  const data = await fetchJson(url, {}, 8500);
+  const raw = data?.RAW || {};
+  const rows = CRYPTOCOMPARE_SYMBOLS.map((symbol, index) => {
+    const r = raw?.[symbol]?.USD;
+    if (!r) return null;
+    const price = Number(r.PRICE || 0);
+    const change = Number(r.CHANGEPCT24HOUR || 0);
+    const volume = Number(r.TOTALVOLUME24HTO || r.VOLUME24HOURTO || 0);
+    const marketCap = Number(r.MKTCAP || 0);
+    return {
+      id: symbol.toLowerCase(),
+      name: NAME_MAP[symbol] || (symbol === 'USDT' ? 'Tether' : symbol === 'USDC' ? 'USD Coin' : symbol),
+      symbol,
+      current_price: price,
+      price_change_percentage_24h: change,
+      total_volume: volume,
+      market_cap: marketCap,
+      high_24h: Number(r.HIGH24HOUR || 0),
+      low_24h: Number(r.LOW24HOUR || 0),
+      sparkline_in_7d: sparkline(price, change, index),
+      score: scoreFor({ price_change_percentage_24h: change, total_volume: volume }, index)
+    };
+  }).filter((row) => row && row.symbol && row.current_price > 0);
+  if (!rows.length) throw new Error('empty_cryptocompare');
+  return rows;
+}
+
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function fetchJson(url, options = {}, timeoutMs = 9000) {
@@ -196,6 +228,15 @@ async function cryptoNewsSignals(baseRows) {
 
 async function liveMarket() {
   const errors = [];
+
+  try {
+    const rows = await cryptoCompareMarkets();
+    return { source: 'cryptocompare-live', data: rows, global: await coinGeckoGlobal() };
+  } catch (err) {
+    errors.push(`cryptocompare:${err.message}`);
+  }
+
+  await sleep(150);
   try {
     const rows = await coinGeckoMarkets();
     return { source: 'coingecko-live', data: rows, global: await coinGeckoGlobal() };
