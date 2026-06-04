@@ -1,372 +1,124 @@
-import { json, env, trimSlash, normalizePath } from './_utils.js';
+const COINS = [
+  ['BTC','bitcoin','BTCUSDT','Bitcoin','Layer1'],
+  ['ETH','ethereum','ETHUSDT','Ethereum','Layer1'],
+  ['BNB','binancecoin','BNBUSDT','BNB','DeFi'],
+  ['SOL','solana','SOLUSDT','Solana','StableCoin'],
+  ['XRP','ripple','XRPUSDT','XRP','Meme'],
+  ['DOGE','dogecoin','DOGEUSDT','Dogecoin','NFT'],
+  ['ADA','cardano','ADAUSDT','Cardano','NFT'],
+  ['AVAX','avalanche-2','AVAXUSDT','Avalanche','CeFi'],
+  ['LINK','chainlink','LINKUSDT','Chainlink','Meme'],
+  ['TRX','tron','TRXUSDT','TRON','Meme'],
+  ['NEAR','near','NEARUSDT','NEAR Protocol','GameFi'],
+  ['UNI','uniswap','UNIUSDT','Uniswap','DeFi'],
+  ['ONDO','ondo-finance','ONDOUSDT','Ondo','RWA'],
+  ['RENDER','render-token','RENDERUSDT','Render','AI'],
+  ['AAVE','aave','AAVEUSDT','Aave','DeFi'],
+  ['SUI','sui','SUIUSDT','Sui','Layer1'],
+  ['USDT','tether','USDTUSDT','Tether','StableCoin'],
+  ['USDC','usd-coin','USDCUSDT','USD Coin','Others']
+];
 
-const DEFAULT_PATHS = {
-  market: '/token/market/list',
-  news: '/news/list',
-  etf: '/etf/bitcoin/spot/flow',
-  ssi: '/ssi/index/list'
+const json = (res, status, body) => {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 's-maxage=20, stale-while-revalidate=40');
+  res.end(JSON.stringify(body));
 };
 
-const ENV_KEYS = {
-  market: 'SOSOVALUE_MARKET_PATH',
-  news: 'SOSOVALUE_NEWS_PATH',
-  etf: 'SOSOVALUE_ETF_PATH',
-  ssi: 'SOSOVALUE_SSI_PATH'
-};
-
-const COINGECKO_IDS = [
-  'bitcoin','ethereum','tether','binancecoin','solana','ripple','usd-coin','dogecoin','cardano','tron','chainlink','avalanche-2','sui','stellar','wrapped-bitcoin','hyperliquid','litecoin','bitcoin-cash','polkadot','near','uniswap','aptos','internet-computer','ethereum-classic','ondo-finance','render-token','arbitrum','optimism'
-].join(',');
-
-const BINANCE_SYMBOLS = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','LINKUSDT','AVAXUSDT','SUIUSDT','XLMUSDT','LTCUSDT','BCHUSDT','DOTUSDT','NEARUSDT','UNIUSDT','APTUSDT','ICPUSDT','ETCUSDT','RENDERUSDT','OPUSDT','ARBUSDT'];
-
-const NAME_MAP = {
-  BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'BNB', SOL: 'Solana', XRP: 'XRP', DOGE: 'Dogecoin', ADA: 'Cardano', TRX: 'TRON',
-  LINK: 'Chainlink', AVAX: 'Avalanche', SUI: 'Sui', XLM: 'Stellar', LTC: 'Litecoin', BCH: 'Bitcoin Cash', DOT: 'Polkadot',
-  NEAR: 'NEAR Protocol', UNI: 'Uniswap', APT: 'Aptos', ICP: 'Internet Computer', ETC: 'Ethereum Classic', RENDER: 'Render', OP: 'Optimism', ARB: 'Arbitrum'
-};
-
-
-const CRYPTOCOMPARE_SYMBOLS = ['BTC','ETH','USDT','BNB','SOL','XRP','USDC','DOGE','ADA','TRX','LINK','AVAX','SUI','XLM','LTC','BCH','DOT','NEAR','UNI','APT','ICP','ETC','ONDO','RENDER','ARB','OP'];
-
-async function cryptoCompareMarkets() {
-  const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${CRYPTOCOMPARE_SYMBOLS.join(',')}&tsyms=USD`;
-  const data = await fetchJson(url, {}, 8500);
-  const raw = data?.RAW || {};
-  const rows = CRYPTOCOMPARE_SYMBOLS.map((symbol, index) => {
-    const r = raw?.[symbol]?.USD;
-    if (!r) return null;
-    const price = Number(r.PRICE || 0);
-    const change = Number(r.CHANGEPCT24HOUR || 0);
-    const volume = Number(r.TOTALVOLUME24HTO || r.VOLUME24HOURTO || 0);
-    const marketCap = Number(r.MKTCAP || 0);
-    return {
-      id: symbol.toLowerCase(),
-      name: NAME_MAP[symbol] || (symbol === 'USDT' ? 'Tether' : symbol === 'USDC' ? 'USD Coin' : symbol),
-      symbol,
-      current_price: price,
-      price_change_percentage_24h: change,
-      total_volume: volume,
-      market_cap: marketCap,
-      high_24h: Number(r.HIGH24HOUR || 0),
-      low_24h: Number(r.LOW24HOUR || 0),
-      sparkline_in_7d: sparkline(price, change, index),
-      score: scoreFor({ price_change_percentage_24h: change, total_volume: volume }, index)
-    };
-  }).filter((row) => row && row.symbol && row.current_price > 0);
-  if (!rows.length) throw new Error('empty_cryptocompare');
-  return rows;
-}
-
-function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-
-async function fetchJson(url, options = {}, timeoutMs = 9000) {
+async function fetchJson(url, timeoutMs = 9000) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
-      ...options,
+    const r = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        accept: 'application/json',
-        'user-agent': 'ValuePilot-Wave2/2.0',
-        ...(options.headers || {})
-      }
+      headers: { 'accept': 'application/json', 'user-agent': 'ValuePilot/2.0' }
     });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    if (!res.ok) {
-      const err = new Error(`upstream_${res.status}`);
-      err.status = res.status;
-      err.data = data;
-      throw err;
-    }
-    return data;
-  } finally {
-    clearTimeout(timeout);
-  }
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
 }
 
-function scoreFor(row, index = 0) {
-  const change = Number(row.price_change_percentage_24h || 0);
-  const volume = Number(row.total_volume || 0);
-  return Math.round(Math.max(42, Math.min(98, 70 + change * 1.8 + Math.log10(volume || 1) / 2 - index / 5)));
+const n = (v, d = 0) => Number.isFinite(Number(v)) ? Number(v) : d;
+
+function fmtChart(seed, change) {
+  const out = [];
+  const base = 50 + (seed % 17);
+  for (let i = 0; i < 7; i++) out.push(Math.round((base + Math.sin(i + seed) * 9 + change * i / 4) * 100) / 100);
+  return out;
 }
 
-function sparkline(price = 1, change = 0, index = 0) {
-  const p = Number(price || 1);
-  const c = Number(change || 0);
-  return { price: Array.from({ length: 30 }, (_, i) => p * (1 + Math.sin((i + index) / 3) * 0.012 + c / 2600 * i)) };
+async function binanceMarket() {
+  const tickers = await fetchJson('https://api.binance.com/api/v3/ticker/24hr');
+  const map = new Map(tickers.map(x => [x.symbol, x]));
+  return COINS.map(([symbol, id, pair, name, sector], i) => {
+    if (symbol === 'USDT') return { symbol, id, name, sector, price: 1, change24h: 0, volume24h: 0, marketCap: 0, chart: fmtChart(i, 0), aiScore: 70 };
+    const t = map.get(pair);
+    if (!t) return null;
+    const price = n(t.lastPrice);
+    const quoteVolume = n(t.quoteVolume);
+    const change24h = n(t.priceChangePercent);
+    return { symbol, id, name, sector, price, change24h, volume24h: quoteVolume, marketCap: 0, chart: fmtChart(i, change24h), aiScore: Math.max(45, Math.min(95, Math.round(72 + change24h * 1.4 + (quoteVolume > 1e9 ? 5 : 0)))) };
+  }).filter(Boolean);
 }
 
-function normalizeCgMarket(items = []) {
-  return items.map((coin, index) => ({
-    id: coin.id,
-    name: coin.name,
-    symbol: String(coin.symbol || '').toUpperCase(),
-    current_price: Number(coin.current_price || 0),
-    price_change_percentage_24h: Number(coin.price_change_percentage_24h || 0),
-    market_cap: Number(coin.market_cap || 0),
-    total_volume: Number(coin.total_volume || 0),
-    high_24h: Number(coin.high_24h || 0),
-    low_24h: Number(coin.low_24h || 0),
-    sparkline_in_7d: coin.sparkline_in_7d || sparkline(coin.current_price, coin.price_change_percentage_24h, index),
-    score: scoreFor(coin, index)
-  })).filter((row) => row.symbol && row.current_price > 0);
-}
-
-async function coinGeckoMarkets() {
-  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINGECKO_IDS}&order=market_cap_desc&per_page=50&page=1&sparkline=true&price_change_percentage=24h`;
-  const rows = normalizeCgMarket(await fetchJson(url, {}, 8500));
-  if (!rows.length) throw new Error('empty_coingecko');
-  return rows;
-}
-
-async function coinGeckoGlobal() {
-  try {
-    const data = await fetchJson('https://api.coingecko.com/api/v3/global', {}, 6000);
+async function geckoMarket() {
+  const ids = COINS.map(c => c[1]).join(',');
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=50&page=1&sparkline=true&price_change_percentage=24h`;
+  const data = await fetchJson(url, 10000);
+  return data.map((x, i) => {
+    const meta = COINS.find(c => c[1] === x.id) || [];
     return {
-      totalMarketCap: Number(data?.data?.total_market_cap?.usd || 0),
-      totalVolume24h: Number(data?.data?.total_volume?.usd || 0),
-      btcDominance: Number(data?.data?.market_cap_percentage?.btc || 0),
-      ethDominance: Number(data?.data?.market_cap_percentage?.eth || 0)
-    };
-  } catch { return null; }
-}
-
-async function binanceMarkets() {
-  const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(BINANCE_SYMBOLS))}`;
-  const rows = await fetchJson(url, {}, 8500);
-  const data = rows.map((r, index) => {
-    const symbol = String(r.symbol || '').replace('USDT', '');
-    const price = Number(r.lastPrice || 0);
-    const change = Number(r.priceChangePercent || 0);
-    const volume = Number(r.quoteVolume || 0);
-    return {
-      id: symbol.toLowerCase(),
-      name: NAME_MAP[symbol] || symbol,
-      symbol,
-      current_price: price,
-      price_change_percentage_24h: change,
-      total_volume: volume,
-      market_cap: 0,
-      high_24h: Number(r.highPrice || 0),
-      low_24h: Number(r.lowPrice || 0),
-      sparkline_in_7d: sparkline(price, change, index),
-      score: scoreFor({ price_change_percentage_24h: change, total_volume: volume }, index)
-    };
-  }).filter((row) => row.symbol && row.current_price > 0);
-  if (!data.length) throw new Error('empty_binance');
-  return data;
-}
-
-function mergeExchangeWithCoinGecko(exchangeRows = [], cgRows = []) {
-  const bySymbol = new Map();
-  for (const row of exchangeRows) bySymbol.set(String(row.symbol || '').toUpperCase(), { ...row });
-
-  for (const cg of cgRows) {
-    const symbol = String(cg.symbol || '').toUpperCase();
-    if (!symbol) continue;
-    const existing = bySymbol.get(symbol);
-    if (existing) {
-      bySymbol.set(symbol, {
-        ...existing,
-        id: existing.id || cg.id,
-        name: existing.name || cg.name,
-        market_cap: Number(cg.market_cap || existing.market_cap || 0),
-        sparkline_in_7d: cg.sparkline_in_7d || existing.sparkline_in_7d,
-        high_24h: Number(existing.high_24h || cg.high_24h || 0),
-        low_24h: Number(existing.low_24h || cg.low_24h || 0)
-      });
-    } else if (Number(cg.current_price || 0) > 0) {
-      bySymbol.set(symbol, cg);
-    }
-  }
-
-  return [...bySymbol.values()]
-    .filter((row) => row.symbol && Number(row.current_price || 0) > 0)
-    .sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0));
-}
-
-function buildSsi(rows) {
-  return rows.map((r, i) => ({
-    ...r,
-    indexName: `${String(r.symbol || 'ASSET').toUpperCase()} Smart Index`,
-    nav: r.current_price,
-    change24h: Number(r.price_change_percentage_24h || 0),
-    weight: `${Math.max(4, 26 - i * 2)}%`,
-    score: scoreFor(r, i)
-  }));
-}
-
-function buildEtf(rows) {
-  return rows.slice(0, 12).map((r, i) => {
-    const volume = Number(r.total_volume || 0);
-    const change = Number(r.price_change_percentage_24h || 0);
-    const netFlow = Math.round(volume * (change >= 0 ? 0.024 : -0.018));
-    return {
-      title: `${String(r.symbol || 'ETF').toUpperCase()} flow proxy`,
-      name: `${String(r.symbol || 'ETF').toUpperCase()} Spot Flow`,
-      symbol: String(r.symbol || 'ETF').toUpperCase(),
-      current_price: Math.abs(netFlow),
-      netFlow,
-      amount: volume,
-      total_volume: volume,
-      market_cap: Number(r.market_cap || volume * 10),
-      price_change_percentage_24h: change,
-      sparkline_in_7d: r.sparkline_in_7d,
-      score: Math.round(Math.max(40, Math.min(96, 62 + change * 2 + i)))
+      symbol: String(x.symbol || meta[0] || '').toUpperCase(),
+      id: x.id,
+      name: x.name || meta[3] || String(x.symbol || '').toUpperCase(),
+      sector: meta[4] || 'Market',
+      price: n(x.current_price),
+      change24h: n(x.price_change_percentage_24h),
+      volume24h: n(x.total_volume),
+      marketCap: n(x.market_cap),
+      chart: Array.isArray(x.sparkline_in_7d?.price) ? x.sparkline_in_7d.price.slice(-24).filter(v => Number.isFinite(Number(v))) : fmtChart(i, n(x.price_change_percentage_24h)),
+      aiScore: Math.max(45, Math.min(95, Math.round(70 + n(x.price_change_percentage_24h) + (n(x.total_volume) > 1e9 ? 4 : 0))))
     };
   });
 }
 
-async function cryptoNewsSignals(baseRows) {
-  try {
-    const data = await fetchJson('https://min-api.cryptocompare.com/data/v2/news/?lang=EN', {}, 7000);
-    const list = Array.isArray(data?.Data) ? data.Data : [];
-    if (list.length) {
-      return list.slice(0, 12).map((n, i) => ({
-        title: n.title,
-        name: n.source_info?.name || n.source || 'Crypto news',
-        symbol: 'NEWS',
-        url: n.url,
-        current_price: 0,
-        total_volume: 0,
-        market_cap: 0,
-        price_change_percentage_24h: i % 2 ? -0.2 : 0.4,
-        score: 80 - i
-      }));
-    }
-  } catch {}
-
-  return (baseRows || []).slice(0, 10).map((row, i) => ({
-    title: `${row.name || row.symbol} live market signal: volume and momentum require monitoring`,
-    name: 'AI market brief',
-    symbol: String(row.symbol || 'NEWS').toUpperCase(),
-    current_price: row.current_price,
-    total_volume: row.total_volume,
-    market_cap: row.market_cap,
-    price_change_percentage_24h: row.price_change_percentage_24h,
-    sparkline_in_7d: row.sparkline_in_7d,
-    score: Math.max(60, 84 - i)
-  }));
+function merge(binance, gecko) {
+  const bySymbol = new Map(gecko.map(x => [x.symbol, x]));
+  const merged = binance.map((b) => {
+    const g = bySymbol.get(b.symbol);
+    return {
+      ...b,
+      marketCap: g?.marketCap || b.marketCap || 0,
+      volume24h: b.volume24h || g?.volume24h || 0,
+      chart: (g?.chart?.length ? g.chart : b.chart),
+      name: g?.name || b.name
+    };
+  });
+  for (const g of gecko) if (!merged.some(x => x.symbol === g.symbol)) merged.push(g);
+  return merged.filter(x => x.price > 0).sort((a,b) => (b.marketCap || b.volume24h) - (a.marketCap || a.volume24h)).slice(0, 18);
 }
 
-async function liveMarket() {
-  const errors = [];
-
-  try {
-    const exchangeRows = await binanceMarkets();
-    let rows = exchangeRows;
-    let cgGlobal = null;
-    try {
-      const cgRows = await coinGeckoMarkets();
-      rows = mergeExchangeWithCoinGecko(exchangeRows, cgRows);
-      cgGlobal = await coinGeckoGlobal();
-    } catch (err) {
-      errors.push(`coingecko_enrich:${err.message}`);
-    }
-    return { source: 'live-market', data: rows, global: cgGlobal };
-  } catch (err) {
-    errors.push(`exchange:${err.message}`);
-  }
-
-  await sleep(150);
-  try {
-    const rows = await coinGeckoMarkets();
-    return { source: 'live-market', data: rows, global: await coinGeckoGlobal() };
-  } catch (err) {
-    errors.push(`market_enrich:${err.message}`);
-  }
-
-  await sleep(150);
-  try {
-    const rows = await cryptoCompareMarkets();
-    return { source: 'live-market', data: rows, global: await coinGeckoGlobal() };
-  } catch (err) {
-    errors.push(`market_backup:${err.message}`);
-  }
-
-  const error = new Error(errors.join(' | ') || 'all_live_sources_failed');
-  error.status = 502;
-  throw error;
+function globalStats(assets) {
+  const totalMarketCap = assets.reduce((s,x) => s + n(x.marketCap), 0);
+  const totalVolume24h = assets.reduce((s,x) => s + n(x.volume24h), 0);
+  const btc = assets.find(x => x.symbol === 'BTC');
+  const eth = assets.find(x => x.symbol === 'ETH');
+  return { totalMarketCap, totalVolume24h, btcPrice: btc?.price || 0, btcChange: btc?.change24h || 0, ethPrice: eth?.price || 0, ethChange: eth?.change24h || 0 };
 }
 
-async function derivedResource(resource) {
-  const market = await liveMarket();
-  if (resource === 'market') return market;
-  if (resource === 'ssi') return { source: `${market.source}-ssi`, data: buildSsi(market.data), global: market.global };
-  if (resource === 'etf') return { source: `${market.source}-etf`, data: buildEtf(market.data), global: market.global };
-  if (resource === 'news') return { source: `${market.source}-news`, data: await cryptoNewsSignals(market.data), global: market.global };
-  return market;
-}
-
-function extractRowsFromSoso(payload) {
-  const candidates = [payload?.data?.data, payload?.data?.list, payload?.data?.items, payload?.data?.records, payload?.data, payload?.list, payload?.items, payload?.records, payload];
-  for (const item of candidates) {
-    if (Array.isArray(item) && item.length) return item;
-  }
-  return [];
-}
-
-async function trySosoValue(resource, reqUrl) {
-  const apiKey = env('SOSOVALUE_API_KEY');
-  if (!apiKey) throw new Error('no_sosovalue_key');
-  const base = trimSlash(env('SOSOVALUE_BASE_URL', 'https://openapi.sosovalue.com/openapi/v1'));
-  const path = normalizePath(env(ENV_KEYS[resource], DEFAULT_PATHS[resource]));
-  if (!path) throw new Error('no_sosovalue_path');
-  const target = new URL(`${base}${path}`);
-  for (const [key, value] of reqUrl.searchParams.entries()) {
-    if (!['resource', 'debug', 'strict'].includes(key)) target.searchParams.set(key, value);
-  }
-  const raw = await fetchJson(target, {
-    headers: {
-      'x-soso-api-key': apiKey,
-      'X-SOSO-API-KEY': apiKey,
-      Authorization: `Bearer ${apiKey}`
-    }
-  }, 8500);
-  const rows = extractRowsFromSoso(raw);
-  if (!rows.length) throw new Error('empty_sosovalue');
-  return { source: 'sosovalue', data: rows, raw };
-}
-
-export default async function handler(req) {
-  const url = new URL(req.url);
-  const resource = url.searchParams.get('resource') || 'market';
-  const debug = url.searchParams.get('debug') === '1';
-  const strict = url.searchParams.get('strict') === '1';
-
+export default async function handler(req, res) {
+  const debug = req.query?.debug === '1';
   try {
-    let result;
-    try {
-      result = await trySosoValue(resource, url);
-    } catch (sosoError) {
-      if (strict) throw sosoError;
-      result = await derivedResource(resource);
-      result.sosoError = sosoError.message;
-    }
-
-    return json({
-      ok: true,
-      resource,
-      data: result.data,
-      assets: result.data,
-      global: result.global || null,
-      updatedAt: new Date().toISOString(),
-      live: true,
-      ...(debug ? { source: result.source, fallback: result.source !== 'sosovalue', debug: { rows: result.data.length, sosoError: result.sosoError || null } } : {})
-    });
-  } catch (err) {
-    return json({
-      ok: false,
-      resource,
-      error: err.message || 'live_market_failed',
-      data: [],
-      assets: [],
-      updatedAt: new Date().toISOString(),
-      ...(debug ? { source: 'none' } : {})
-    }, err.status || 502);
+    const [bRes, gRes] = await Promise.allSettled([binanceMarket(), geckoMarket()]);
+    const binance = bRes.status === 'fulfilled' ? bRes.value : [];
+    const gecko = gRes.status === 'fulfilled' ? gRes.value : [];
+    const assets = merge(binance, gecko);
+    if (!assets.length) throw new Error('No live market rows returned');
+    const body = { ok: true, assets, data: { assets }, global: globalStats(assets), updatedAt: new Date().toISOString() };
+    if (debug) body.source = `live-merged:${binance.length ? 'exchange' : ''}${gecko.length ? '+market' : ''}`;
+    return json(res, 200, body);
+  } catch (e) {
+    return json(res, 502, { ok: false, error: 'Live market data unavailable. Please redeploy or retry.', message: e.message, assets: [], data: { assets: [] }, global: globalStats([]) });
   }
 }
