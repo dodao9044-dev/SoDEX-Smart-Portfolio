@@ -208,8 +208,7 @@ function ensureRows(next) {
 
 function App() {
   const [datasets, setDatasets] = useState({ market: [], ssi: [], etf: [], news: [] });
-  const [sourceMap, setSourceMap] = useState({});
-  const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('market');
   const [sideActive, setSideActive] = useState('market');
   const [search, setSearch] = useState('');
@@ -227,21 +226,17 @@ function App() {
     setLoading(true);
     const resources = ['market', 'ssi', 'etf', 'news'];
     try {
-      const results = await Promise.all(resources.map((resource) => requestJson(`/api/sosovalue?resource=${resource}&debug=1&t=${Date.now()}`)));
+      const results = await Promise.all(resources.map((resource) => requestJson(`/api/sosovalue?resource=${resource}&t=${Date.now()}`)));
       const next = {};
-      const sources = {};
       resources.forEach((resource, index) => {
         next[resource] = rowsFrom(results[index]);
-        sources[resource] = results[index]?.source || 'protected';
       });
       const safeNext = ensureRows(next);
       setDatasets(safeNext);
-      setSourceMap({ market: sources.market || 'client-resilience', ssi: sources.ssi || 'client-resilience', etf: sources.etf || 'client-resilience', news: sources.news || 'client-resilience' });
       const first = safeNext.market?.[0] || safeNext.ssi?.[0] || safeNext.etf?.[0] || safeNext.news?.[0] || null;
       setSelectedRow(first);
     } catch {
-      setDatasets(clientFallbackDatasets());
-      setSourceMap({ market: 'client-resilience', ssi: 'client-resilience', etf: 'client-resilience', news: 'client-resilience' });
+      setDatasets({ market: [], ssi: [], etf: [], news: [] });
       setSelectedRow(null);
     } finally {
       setLoading(false);
@@ -433,7 +428,7 @@ function App() {
             <div className="sectionHead">
               <div>
                 <h1>{sideActive === 'execution' ? 'Execution Workstation' : sideActive === 'analysis' ? 'Research & Analysis' : 'Cryptocurrency Research Terminal'}</h1>
-                <p>{sideActive === 'watchlist' ? 'Saved opportunities across your custom watchlist.' : 'Live prices, ranking, sector rotation, ETF proxies and news intelligence in one command center.'}</p>
+                <p>{sideActive === 'watchlist' ? 'Saved opportunities across your custom watchlist.' : 'Live market intelligence with protected execution layer.'}</p>
               </div>
               <div className="miniStats">
                 <div><small>Market mode</small><b>Live</b></div>

@@ -150,8 +150,7 @@ async function binanceMarkets() {
       current_price: price,
       price_change_percentage_24h: change,
       total_volume: volume,
-      // Binance does not provide market cap. Keep this as a volume-derived liquidity proxy, not a hard-coded fake price.
-      market_cap: Math.round(volume * Math.max(3, 28 - index)),
+      market_cap: 0,
       high_24h: Number(r.highPrice || 0),
       low_24h: Number(r.lowPrice || 0),
       sparkline_in_7d: sparkline(price, change, index),
@@ -160,6 +159,34 @@ async function binanceMarkets() {
   }).filter((row) => row.symbol && row.current_price > 0);
   if (!data.length) throw new Error('empty_binance');
   return data;
+}
+
+function mergeExchangeWithCoinGecko(exchangeRows = [], cgRows = []) {
+  const bySymbol = new Map();
+  for (const row of exchangeRows) bySymbol.set(String(row.symbol || '').toUpperCase(), { ...row });
+
+  for (const cg of cgRows) {
+    const symbol = String(cg.symbol || '').toUpperCase();
+    if (!symbol) continue;
+    const existing = bySymbol.get(symbol);
+    if (existing) {
+      bySymbol.set(symbol, {
+        ...existing,
+        id: existing.id || cg.id,
+        name: existing.name || cg.name,
+        market_cap: Number(cg.market_cap || existing.market_cap || 0),
+        sparkline_in_7d: cg.sparkline_in_7d || existing.sparkline_in_7d,
+        high_24h: Number(existing.high_24h || cg.high_24h || 0),
+        low_24h: Number(existing.low_24h || cg.low_24h || 0)
+      });
+    } else if (Number(cg.current_price || 0) > 0) {
+      bySymbol.set(symbol, cg);
+    }
+  }
+
+  return [...bySymbol.values()]
+    .filter((row) => row.symbol && Number(row.current_price || 0) > 0)
+    .sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0));
 }
 
 function buildSsi(rows) {
@@ -230,26 +257,35 @@ async function liveMarket() {
   const errors = [];
 
   try {
-    const rows = await cryptoCompareMarkets();
-    return { source: 'cryptocompare-live', data: rows, global: await coinGeckoGlobal() };
+    const exchangeRows = await binanceMarkets();
+    let rows = exchangeRows;
+    let cgGlobal = null;
+    try {
+      const cgRows = await coinGeckoMarkets();
+      rows = mergeExchangeWithCoinGecko(exchangeRows, cgRows);
+      cgGlobal = await coinGeckoGlobal();
+    } catch (err) {
+      errors.push(`coingecko_enrich:${err.message}`);
+    }
+    return { source: 'live-market', data: rows, global: cgGlobal };
   } catch (err) {
-    errors.push(`cryptocompare:${err.message}`);
+    errors.push(`exchange:${err.message}`);
   }
 
   await sleep(150);
   try {
     const rows = await coinGeckoMarkets();
-    return { source: 'coingecko-live', data: rows, global: await coinGeckoGlobal() };
+    return { source: 'live-market', data: rows, global: await coinGeckoGlobal() };
   } catch (err) {
-    errors.push(`coingecko:${err.message}`);
+    errors.push(`market_enrich:${err.message}`);
   }
 
   await sleep(150);
   try {
-    const rows = await binanceMarkets();
-    return { source: 'binance-live', data: rows, global: null };
+    const rows = await cryptoCompareMarkets();
+    return { source: 'live-market', data: rows, global: await coinGeckoGlobal() };
   } catch (err) {
-    errors.push(`binance:${err.message}`);
+    errors.push(`market_backup:${err.message}`);
   }
 
   const error = new Error(errors.join(' | ') || 'all_live_sources_failed');
@@ -315,24 +351,22 @@ export default async function handler(req) {
     return json({
       ok: true,
       resource,
-      source: result.source,
       data: result.data,
       assets: result.data,
       global: result.global || null,
       updatedAt: new Date().toISOString(),
       live: true,
-      fallback: result.source !== 'sosovalue',
-      ...(debug ? { debug: { rows: result.data.length, sosoError: result.sosoError || null } } : {})
+      ...(debug ? { source: result.source, fallback: result.source !== 'sosovalue', debug: { rows: result.data.length, sosoError: result.sosoError || null } } : {})
     });
   } catch (err) {
     return json({
       ok: false,
       resource,
-      source: 'none',
       error: err.message || 'live_market_failed',
       data: [],
       assets: [],
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      ...(debug ? { source: 'none' } : {})
     }, err.status || 502);
   }
 }
