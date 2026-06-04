@@ -1,0 +1,24 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/sosovalue"
+  to = "/.netlify/functions/sosovalue"
+  status = 200
+
+[[redirects]]
+  from = "/api/sodex/account"
+  to = "/.netlify/functions/sodex-account"
+  status = 200
+
+[[redirects]]
+  from = "/api/sodex/order"
+  to = "/.netlify/functions/sodex-order"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
