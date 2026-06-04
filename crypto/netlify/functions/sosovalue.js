@@ -1,7 +1,5 @@
-const json = (statusCode, body) => ({ statusCode, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' }, body: JSON.stringify(body) });
-const env = (name, fallback = '') => process.env[name] || fallback;
-const trimSlash = (value = '') => String(value).replace(/\/+$/, '');
-const normalizePath = (value = '') => !value ? '' : value.startsWith('/') ? value : `/${value}`;
+import { json, env, trimSlash, normalizePath } from './_utils.js';
+
 const DEFAULT_PATHS = {
   market: '/token/market/list',
   news: '/news/list',
@@ -20,9 +18,13 @@ const COINGECKO_IDS = [
   'bitcoin','ethereum','tether','binancecoin','solana','ripple','usd-coin','dogecoin','cardano','tron','chainlink','avalanche-2','sui','stellar','wrapped-bitcoin','hyperliquid','litecoin','bitcoin-cash','polkadot','near','uniswap','aptos','internet-computer','ethereum-classic','ondo-finance','render-token','arbitrum','optimism'
 ].join(',');
 
-const BINANCE_SYMBOLS = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','LINKUSDT','AVAXUSDT','SUIUSDT','XLMUSDT','LTCUSDT','BCHUSDT','DOTUSDT','NEARUSDT','UNIUSDT','APTUSDT','ICPUSDT','ETCUSDT'];
+const BINANCE_SYMBOLS = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','LINKUSDT','AVAXUSDT','SUIUSDT','XLMUSDT','LTCUSDT','BCHUSDT','DOTUSDT','NEARUSDT','UNIUSDT','APTUSDT','ICPUSDT','ETCUSDT','RENDERUSDT','OPUSDT','ARBUSDT'];
 
-const LOCAL_MARKET = [];
+const NAME_MAP = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'BNB', SOL: 'Solana', XRP: 'XRP', DOGE: 'Dogecoin', ADA: 'Cardano', TRX: 'TRON',
+  LINK: 'Chainlink', AVAX: 'Avalanche', SUI: 'Sui', XLM: 'Stellar', LTC: 'Litecoin', BCH: 'Bitcoin Cash', DOT: 'Polkadot',
+  NEAR: 'NEAR Protocol', UNI: 'Uniswap', APT: 'Aptos', ICP: 'Internet Computer', ETC: 'Ethereum Classic', RENDER: 'Render', OP: 'Optimism', ARB: 'Arbitrum'
+};
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
@@ -35,7 +37,7 @@ async function fetchJson(url, options = {}, timeoutMs = 9000) {
       signal: controller.signal,
       headers: {
         accept: 'application/json',
-        'user-agent': 'ValuePilot-Wave2/1.0',
+        'user-agent': 'ValuePilot-Wave2/2.0',
         ...(options.headers || {})
       }
     });
@@ -54,99 +56,102 @@ async function fetchJson(url, options = {}, timeoutMs = 9000) {
   }
 }
 
+function scoreFor(row, index = 0) {
+  const change = Number(row.price_change_percentage_24h || 0);
+  const volume = Number(row.total_volume || 0);
+  return Math.round(Math.max(42, Math.min(98, 70 + change * 1.8 + Math.log10(volume || 1) / 2 - index / 5)));
+}
+
+function sparkline(price = 1, change = 0, index = 0) {
+  const p = Number(price || 1);
+  const c = Number(change || 0);
+  return { price: Array.from({ length: 30 }, (_, i) => p * (1 + Math.sin((i + index) / 3) * 0.012 + c / 2600 * i)) };
+}
+
 function normalizeCgMarket(items = []) {
   return items.map((coin, index) => ({
     id: coin.id,
     name: coin.name,
     symbol: String(coin.symbol || '').toUpperCase(),
-    current_price: coin.current_price,
-    price_change_percentage_24h: coin.price_change_percentage_24h,
-    market_cap: coin.market_cap,
-    total_volume: coin.total_volume,
-    sparkline_in_7d: coin.sparkline_in_7d,
-    score: Math.round(Math.max(42, Math.min(98, 70 + Number(coin.price_change_percentage_24h || 0) * 1.8 + Math.log10(Number(coin.total_volume || 1)) / 2 - index / 5)))
-  }));
+    current_price: Number(coin.current_price || 0),
+    price_change_percentage_24h: Number(coin.price_change_percentage_24h || 0),
+    market_cap: Number(coin.market_cap || 0),
+    total_volume: Number(coin.total_volume || 0),
+    high_24h: Number(coin.high_24h || 0),
+    low_24h: Number(coin.low_24h || 0),
+    sparkline_in_7d: coin.sparkline_in_7d || sparkline(coin.current_price, coin.price_change_percentage_24h, index),
+    score: scoreFor(coin, index)
+  })).filter((row) => row.symbol && row.current_price > 0);
 }
 
 async function coinGeckoMarkets() {
-  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINGECKO_IDS}&order=market_cap_desc&per_page=40&page=1&sparkline=true&price_change_percentage=24h`;
-  const rows = normalizeCgMarket(await fetchJson(url));
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINGECKO_IDS}&order=market_cap_desc&per_page=50&page=1&sparkline=true&price_change_percentage=24h`;
+  const rows = normalizeCgMarket(await fetchJson(url, {}, 8500));
   if (!rows.length) throw new Error('empty_coingecko');
   return rows;
 }
 
-async function coinGeckoTrendingNews() {
-  const data = await fetchJson('https://api.coingecko.com/api/v3/search/trending');
-  const list = Array.isArray(data?.coins) ? data.coins : [];
-  return list.slice(0, 12).map(({ item }, i) => ({
-    title: `${item.name} is trending across crypto search`,
-    name: item.name,
-    symbol: String(item.symbol || 'NEWS').toUpperCase(),
-    current_price: 0,
-    total_volume: 0,
-    market_cap: 0,
-    price_change_percentage_24h: 4.2 - i * 0.42,
-    score: 84 - i
-  }));
+async function coinGeckoGlobal() {
+  try {
+    const data = await fetchJson('https://api.coingecko.com/api/v3/global', {}, 6000);
+    return {
+      totalMarketCap: Number(data?.data?.total_market_cap?.usd || 0),
+      totalVolume24h: Number(data?.data?.total_volume?.usd || 0),
+      btcDominance: Number(data?.data?.market_cap_percentage?.btc || 0),
+      ethDominance: Number(data?.data?.market_cap_percentage?.eth || 0)
+    };
+  } catch { return null; }
 }
 
 async function binanceMarkets() {
   const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(BINANCE_SYMBOLS))}`;
-  const rows = await fetchJson(url);
-  const data = rows.map((r, index) => ({
-    name: r.symbol.replace('USDT', ''),
-    symbol: r.symbol.replace('USDT', ''),
-    current_price: Number(r.lastPrice),
-    price_change_percentage_24h: Number(r.priceChangePercent),
-    total_volume: Number(r.quoteVolume),
-    market_cap: Number(r.quoteVolume) * (22 - index),
-    high_24h: Number(r.highPrice),
-    low_24h: Number(r.lowPrice),
-    sparkline_in_7d: { price: Array.from({ length: 30 }, (_, i) => Number(r.lastPrice) * (1 + Math.sin((i + index) / 3) * 0.012 + Number(r.priceChangePercent || 0) / 2600 * i)) },
-    score: Math.round(Math.max(45, Math.min(96, 68 + Number(r.priceChangePercent || 0) * 1.7 - index / 5)))
-  }));
+  const rows = await fetchJson(url, {}, 8500);
+  const data = rows.map((r, index) => {
+    const symbol = String(r.symbol || '').replace('USDT', '');
+    const price = Number(r.lastPrice || 0);
+    const change = Number(r.priceChangePercent || 0);
+    const volume = Number(r.quoteVolume || 0);
+    return {
+      id: symbol.toLowerCase(),
+      name: NAME_MAP[symbol] || symbol,
+      symbol,
+      current_price: price,
+      price_change_percentage_24h: change,
+      total_volume: volume,
+      // Binance does not provide market cap. Keep this as a volume-derived liquidity proxy, not a hard-coded fake price.
+      market_cap: Math.round(volume * Math.max(3, 28 - index)),
+      high_24h: Number(r.highPrice || 0),
+      low_24h: Number(r.lowPrice || 0),
+      sparkline_in_7d: sparkline(price, change, index),
+      score: scoreFor({ price_change_percentage_24h: change, total_volume: volume }, index)
+    };
+  }).filter((row) => row.symbol && row.current_price > 0);
   if (!data.length) throw new Error('empty_binance');
   return data;
 }
 
-function withLocalSpark(rows = LOCAL_MARKET) {
-  return rows.map((row, index) => {
-    const price = Number(row.current_price || row.price || 1);
-    const change = Number(row.price_change_percentage_24h || 0);
-    return {
-      ...row,
-      sparkline_in_7d: row.sparkline_in_7d || { price: Array.from({ length: 30 }, (_, i) => price * (1 + Math.sin((i + index) / 3) * 0.015 + change / 2500 * i)) },
-      score: row.score || Math.round(Math.max(44, Math.min(96, 70 + change * 2 - index / 3)))
-    };
-  });
-}
-
 function buildSsi(rows) {
-  return rows.map((r, i) => {
-    const change = Number(r.price_change_percentage_24h || 0);
-    const volume = Number(r.total_volume || 0);
-    const score = Math.max(38, Math.min(98, 68 + change * 2.2 + Math.log10(volume || 1) * 1.1 - i / 2));
-    return {
-      ...r,
-      indexName: `${String(r.symbol || 'ASSET').toUpperCase()} Smart Index`,
-      nav: r.current_price,
-      change24h: change,
-      score: Math.round(score),
-      weight: `${Math.max(4, 26 - i * 2)}%`
-    };
-  });
+  return rows.map((r, i) => ({
+    ...r,
+    indexName: `${String(r.symbol || 'ASSET').toUpperCase()} Smart Index`,
+    nav: r.current_price,
+    change24h: Number(r.price_change_percentage_24h || 0),
+    weight: `${Math.max(4, 26 - i * 2)}%`,
+    score: scoreFor(r, i)
+  }));
 }
 
 function buildEtf(rows) {
   return rows.slice(0, 12).map((r, i) => {
     const volume = Number(r.total_volume || 0);
     const change = Number(r.price_change_percentage_24h || 0);
+    const netFlow = Math.round(volume * (change >= 0 ? 0.024 : -0.018));
     return {
       title: `${String(r.symbol || 'ETF').toUpperCase()} flow proxy`,
       name: `${String(r.symbol || 'ETF').toUpperCase()} Spot Flow`,
       symbol: String(r.symbol || 'ETF').toUpperCase(),
-      current_price: Math.abs(Math.round(volume * (change >= 0 ? 0.024 : -0.018))),
-      netFlow: Math.round(volume * (change >= 0 ? 0.024 : -0.018)),
+      current_price: Math.abs(netFlow),
+      netFlow,
       amount: volume,
       total_volume: volume,
       market_cap: Number(r.market_cap || volume * 10),
@@ -176,13 +181,8 @@ async function cryptoNewsSignals(baseRows) {
     }
   } catch {}
 
-  try {
-    const trending = await coinGeckoTrendingNews();
-    if (trending.length) return trending;
-  } catch {}
-
-  return (baseRows || LOCAL_MARKET).slice(0, 10).map((row, i) => ({
-    title: `${row.name || row.symbol} market signal: volume and momentum require monitoring`,
+  return (baseRows || []).slice(0, 10).map((row, i) => ({
+    title: `${row.name || row.symbol} live market signal: volume and momentum require monitoring`,
     name: 'AI market brief',
     symbol: String(row.symbol || 'NEWS').toUpperCase(),
     current_price: row.current_price,
@@ -194,24 +194,43 @@ async function cryptoNewsSignals(baseRows) {
   }));
 }
 
-async function resilientMarket() {
+async function liveMarket() {
   const errors = [];
-  try { return { source: 'coingecko-live', data: await coinGeckoMarkets() }; } catch (e) { errors.push(`coingecko:${e.message}`); }
+  try {
+    const rows = await coinGeckoMarkets();
+    return { source: 'coingecko-live', data: rows, global: await coinGeckoGlobal() };
+  } catch (err) {
+    errors.push(`coingecko:${err.message}`);
+  }
+
   await sleep(150);
-  try { return { source: 'binance-live', data: await binanceMarkets() }; } catch (e) { errors.push(`binance:${e.message}`); }
-  const err = new Error(`all_live_sources_failed ${errors.join(' | ')}`);
-  err.status = 502;
-  throw err;
+  try {
+    const rows = await binanceMarkets();
+    return { source: 'binance-live', data: rows, global: null };
+  } catch (err) {
+    errors.push(`binance:${err.message}`);
+  }
+
+  const error = new Error(errors.join(' | ') || 'all_live_sources_failed');
+  error.status = 502;
+  throw error;
 }
 
-async function fallback(resource) {
-  const market = await resilientMarket();
-  const marketRows = market.data;
+async function derivedResource(resource) {
+  const market = await liveMarket();
   if (resource === 'market') return market;
-  if (resource === 'ssi') return { source: `${market.source}-ssi`, data: buildSsi(marketRows) };
-  if (resource === 'etf') return { source: `${market.source}-etf`, data: buildEtf(marketRows) };
-  if (resource === 'news') return { source: `${market.source}-news`, data: await cryptoNewsSignals(marketRows) };
+  if (resource === 'ssi') return { source: `${market.source}-ssi`, data: buildSsi(market.data), global: market.global };
+  if (resource === 'etf') return { source: `${market.source}-etf`, data: buildEtf(market.data), global: market.global };
+  if (resource === 'news') return { source: `${market.source}-news`, data: await cryptoNewsSignals(market.data), global: market.global };
   return market;
+}
+
+function extractRowsFromSoso(payload) {
+  const candidates = [payload?.data?.data, payload?.data?.list, payload?.data?.items, payload?.data?.records, payload?.data, payload?.list, payload?.items, payload?.records, payload];
+  for (const item of candidates) {
+    if (Array.isArray(item) && item.length) return item;
+  }
+  return [];
 }
 
 async function trySosoValue(resource, reqUrl) {
@@ -222,38 +241,57 @@ async function trySosoValue(resource, reqUrl) {
   if (!path) throw new Error('no_sosovalue_path');
   const target = new URL(`${base}${path}`);
   for (const [key, value] of reqUrl.searchParams.entries()) {
-    if (key !== 'resource') target.searchParams.set(key, value);
+    if (!['resource', 'debug', 'strict'].includes(key)) target.searchParams.set(key, value);
   }
-  const data = await fetchJson(target, {
+  const raw = await fetchJson(target, {
     headers: {
       'x-soso-api-key': apiKey,
       'X-SOSO-API-KEY': apiKey,
       Authorization: `Bearer ${apiKey}`
     }
   }, 8500);
-  return { ok: true, source: 'sosovalue', resource, path, data };
+  const rows = extractRowsFromSoso(raw);
+  if (!rows.length) throw new Error('empty_sosovalue');
+  return { source: 'sosovalue', data: rows, raw };
 }
 
-export async function handler(event) {
-  const url = new URL(`https://netlify.local/.netlify/functions/sosovalue${event.rawQuery ? `?${event.rawQuery}` : ""}`);
+export default async function handler(req) {
+  const url = new URL(req.url);
   const resource = url.searchParams.get('resource') || 'market';
   const debug = url.searchParams.get('debug') === '1';
   const strict = url.searchParams.get('strict') === '1';
 
   try {
-    const soso = await trySosoValue(resource, url);
-    const rows = Array.isArray(soso?.data?.data) ? soso.data.data : Array.isArray(soso?.data) ? soso.data : null;
-    if (rows && rows.length === 0) throw new Error('empty_sosovalue');
-    return json(200, { ...soso, live: true, fallback: false });
-  } catch (sosoError) {
-    if (strict) {
-      return json(sosoError.status || 502, { ok: false, source: 'sosovalue', resource, error: sosoError.message, hint: 'Check SOSOVALUE_API_KEY / SOSOVALUE_*_PATH in Netlify Environment Variables.' });
-    }
+    let result;
     try {
-      const fb = await fallback(resource);
-      return json(200, { ok: true, source: fb.source, resource, data: fb.data, live: true, fallback: true, upstreamError: debug ? sosoError.message : undefined });
-    } catch (liveError) {
-      return json(liveError.status || 502, { ok: false, source: 'none', resource, data: [], live: false, fallback: false, error: liveError.message, upstreamError: debug ? sosoError.message : undefined });
+      result = await trySosoValue(resource, url);
+    } catch (sosoError) {
+      if (strict) throw sosoError;
+      result = await derivedResource(resource);
+      result.sosoError = sosoError.message;
     }
+
+    return json({
+      ok: true,
+      resource,
+      source: result.source,
+      data: result.data,
+      assets: result.data,
+      global: result.global || null,
+      updatedAt: new Date().toISOString(),
+      live: true,
+      fallback: result.source !== 'sosovalue',
+      ...(debug ? { debug: { rows: result.data.length, sosoError: result.sosoError || null } } : {})
+    });
+  } catch (err) {
+    return json({
+      ok: false,
+      resource,
+      source: 'none',
+      error: err.message || 'live_market_failed',
+      data: [],
+      assets: [],
+      updatedAt: new Date().toISOString()
+    }, err.status || 502);
   }
 }
